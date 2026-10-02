@@ -1,26 +1,24 @@
 export interface Product {
   id: number;
   name: string;
-  categoryId: number;
-  brandId: number;
-  price: number | string;
-  stock: number;
+  category_id: number;
+  category_name: string;
+  brand_id: number;
+  brand_name: string;
+  slug: string;
   description: string | null;
-  specifications: string | null;
-  imageUrl: string | null;
-  isActive: boolean | number;
-  createdAt?: string;
-  updatedAt?: string;
+  thumbnail_url: string | null;
+  status: 'DRAFT' | 'ACTIVE' | 'INACTIVE';
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface ProductRequest {
   name: string;
   categoryId: number;
   brandId: number;
-  price: number;
-  stock: number;
+  slug: string;
   description: string;
-  specifications: string;
-  imageUrl: string;
-  isActive: boolean;
+  thumbnailUrl: string;
+  status: 'DRAFT' | 'ACTIVE' | 'INACTIVE';
 }

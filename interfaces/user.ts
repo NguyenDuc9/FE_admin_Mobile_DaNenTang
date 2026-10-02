@@ -3,6 +3,7 @@ export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'BLOCKED';
 export interface User {
   id: number;
   role_id: number;
+  role_name: string;
   full_name: string;
   email: string;
   phone: string | null;
@@ -13,15 +14,23 @@ export interface User {
 }
 
 export interface UserRequest {
-  role_id: number;
-  full_name: string;
+  roleId: number;
+  fullName: string;
   email: string;
   phone: string;
-  password_hash: string;
-  avatar_url: string;
+  password: string;
+  avatarUrl: string;
   status: UserStatus;
 }
 
-export type UserUpdateRequest = Omit<UserRequest, 'password_hash'> & {
-  password_hash?: string;
+export type UserUpdateRequest = Omit<UserRequest, 'password'> & {
+  password?: string;
 };
+
+export interface UserInfo {
+  id?: number;
+  name?: string;
+  username?: string;
+  email?: string;
+  fullName?: string;
+}

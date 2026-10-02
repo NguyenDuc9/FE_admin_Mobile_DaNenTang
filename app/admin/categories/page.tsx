@@ -9,6 +9,8 @@ import {
   updateCategory,
 } from '@/api/categoryApi';
 import Modal from '@/components/Modal';
+import ImageUpload from '@/components/ImageUpload';
+import { resolveImageUrl } from '@/api/api';
 import type {
   Category,
   CategoryRequest,
@@ -39,6 +41,7 @@ export default function CategoriesPage() {
   );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -90,7 +93,7 @@ export default function CategoriesPage() {
       name: category.name,
       slug: category.slug,
       description: category.description || '',
-      imageUrl: category.imageUrl || '',
+      imageUrl: category.image_url || '',
       status: category.status,
     });
     setFormOpen(true);
@@ -103,6 +106,7 @@ export default function CategoriesPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (uploadingImage) return;
     if (!form.name.trim() || !form.slug.trim()) {
       setError('Tên danh mục và slug là bắt buộc.');
       return;
@@ -222,9 +226,9 @@ export default function CategoriesPage() {
                     <tr key={category.id} className="hover:bg-slate-50">
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
-                          {category.imageUrl ? (
+                          {category.image_url ? (
                             <img
-                              src={category.imageUrl}
+                              src={resolveImageUrl(category.image_url)}
                               alt=""
                               className="h-10 w-10 rounded-lg object-cover"
                             />
@@ -285,7 +289,10 @@ export default function CategoriesPage() {
           <CategoryForm
             form={form}
             saving={saving}
+            uploadingImage={uploadingImage}
             onChange={updateField}
+            onUploadError={setError}
+            onUploadingChange={setUploadingImage}
             onSubmit={handleSubmit}
             onCancel={closeForm}
           />
@@ -363,7 +370,10 @@ function Alert({
 interface CategoryFormProps {
   form: CategoryRequest;
   saving: boolean;
+  uploadingImage: boolean;
   onChange: (field: keyof CategoryRequest, value: string) => void;
+  onUploadError: (message: string) => void;
+  onUploadingChange: (uploading: boolean) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
 }
@@ -371,7 +381,10 @@ interface CategoryFormProps {
 function CategoryForm({
   form,
   saving,
+  uploadingImage,
   onChange,
+  onUploadError,
+  onUploadingChange,
   onSubmit,
   onCancel,
 }: CategoryFormProps) {
@@ -416,22 +429,13 @@ function CategoryForm({
           className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2.5 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
         />
       </div>
-      <div>
-        <label
-          htmlFor="imageUrl"
-          className="mb-1.5 block text-sm font-semibold"
-        >
-          URL hình ảnh
-        </label>
-        <input
-          id="imageUrl"
-          type="url"
-          value={form.imageUrl}
-          onChange={(event) => onChange('imageUrl', event.target.value)}
-          maxLength={500}
-          className="w-full rounded-xl border border-slate-300 px-3 py-2.5 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
-        />
-      </div>
+      <ImageUpload
+        label="Ảnh danh mục"
+        value={form.imageUrl}
+        onChange={(url) => onChange('imageUrl', url)}
+        onError={onUploadError}
+        onUploadingChange={onUploadingChange}
+      />
       <div>
         <label htmlFor="status" className="mb-1.5 block text-sm font-semibold">
           Trạng thái
@@ -458,10 +462,14 @@ function CategoryForm({
         </button>
         <button
           type="submit"
-          disabled={saving}
+          disabled={saving || uploadingImage}
           className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
         >
-          {saving ? 'Đang lưu...' : 'Lưu danh mục'}
+          {saving
+            ? 'Đang lưu...'
+            : uploadingImage
+              ? 'Đang tải ảnh...'
+              : 'Lưu danh mục'}
         </button>
       </div>
     </form>

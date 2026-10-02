@@ -2,22 +2,41 @@
 
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
-import { createUser, deleteUser, getUsers, updateUser } from '@/api/userApi';
-import Modal from '@/components/Modal';
+
+import {
+  createUser,
+  deleteUser,
+  getUsersPage,
+  updateUser,
+} from '@/api/userApi';
+import { getResourceList } from '@/api/adminResourceApi';
+
+import Modal from '@/components/ui/Modal';
+import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
+import Select from '@/components/ui/Select';
+import Badge from '@/components/ui/Badge';
+import Alert from '@/components/ui/Alert';
+import StatCard from '@/components/ui/StatCard';
+import ImageUpload from '@/components/ImageUpload';
+import Pagination from '@/components/Pagination';
+import { resolveImageUrl } from '@/api/api';
+
 import type {
   User,
   UserRequest,
   UserStatus,
   UserUpdateRequest,
 } from '@/interfaces/user';
+import type { ResourceRow } from '@/interfaces/adminResources';
 
 const emptyForm: UserRequest = {
-  role_id: 0,
-  full_name: '',
+  roleId: 0,
+  fullName: '',
   email: '',
   phone: '',
-  password_hash: '',
-  avatar_url: '',
+  password: '',
+  avatarUrl: '',
   status: 'ACTIVE',
 };
 
@@ -29,20 +48,39 @@ function getErrorMessage(error: unknown) {
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
+  const [roles, setRoles] = useState<ResourceRow[]>([]);
   const [form, setForm] = useState<UserRequest>(emptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
+
   const [formOpen, setFormOpen] = useState(false);
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
+
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: 15,
+    total: 0,
+    totalPages: 1,
+  });
   const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  async function loadUsers() {
+  async function loadUsers(targetPage = page) {
     setLoading(true);
     setError('');
+
     try {
-      setUsers(await getUsers());
+      const result = await getUsersPage(targetPage);
+      if (targetPage > 1 && targetPage > result.pagination.totalPages) {
+        setPage(result.pagination.totalPages);
+        return;
+      }
+      setUsers(result.users);
+      setPagination(result.pagination);
     } catch (loadError) {
       setError(getErrorMessage(loadError));
     } finally {
@@ -52,9 +90,15 @@ export default function UsersPage() {
 
   useEffect(() => {
     let active = true;
-    getUsers()
-      .then((data) => {
-        if (active) setUsers(data);
+    getUsersPage(page)
+      .then((result) => {
+        if (!active) return;
+        if (page > 1 && page > result.pagination.totalPages) {
+          setPage(result.pagination.totalPages);
+          return;
+        }
+        setUsers(result.users);
+        setPagination(result.pagination);
       })
       .catch((loadError: unknown) => {
         if (active) setError(getErrorMessage(loadError));
@@ -65,6 +109,12 @@ export default function UsersPage() {
     return () => {
       active = false;
     };
+  }, [page]);
+
+  useEffect(() => {
+    getResourceList('/api/roles')
+      .then(setRoles)
+      .catch((loadError: unknown) => setError(getErrorMessage(loadError)));
   }, []);
 
   function closeForm() {
@@ -82,15 +132,17 @@ export default function UsersPage() {
 
   function openEdit(user: User) {
     setEditingId(user.id);
+
     setForm({
-      role_id: user.role_id,
-      full_name: user.full_name,
+      roleId: user.role_id,
+      fullName: user.full_name,
       email: user.email,
       phone: user.phone || '',
-      password_hash: '',
-      avatar_url: user.avatar_url || '',
+      password: '',
+      avatarUrl: user.avatar_url || '',
       status: user.status,
     });
+
     setFormOpen(true);
     setError('');
   }
@@ -99,41 +151,61 @@ export default function UsersPage() {
     field: K,
     value: UserRequest[K],
   ) {
-    setForm((current) => ({ ...current, [field]: value }));
+    setForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!form.full_name.trim() || !form.email.trim() || form.role_id <= 0) {
+    if (uploadingImage) return;
+
+    if (!form.fullName.trim() || !form.email.trim() || form.roleId <= 0) {
       setError('Họ tên, email và ID vai trò là bắt buộc.');
+      setError('Họ tên, email và vai trò là bắt buộc.');
       return;
     }
-    if (editingId === null && !form.password_hash) {
+
+    if (editingId === null && !form.password) {
       setError('Mật khẩu là bắt buộc khi tạo người dùng.');
       return;
     }
 
     setSaving(true);
     setError('');
+
     try {
       const payload = {
         ...form,
-        full_name: form.full_name.trim(),
+        fullName: form.fullName.trim(),
         email: form.email.trim(),
         phone: form.phone.trim(),
-        avatar_url: form.avatar_url.trim(),
+        avatarUrl: form.avatarUrl.trim(),
       };
+
       if (editingId === null) {
         await createUser(payload);
+
         setNotice('Đã thêm người dùng thành công.');
       } else {
-        const updatePayload: UserUpdateRequest = { ...payload };
-        if (!updatePayload.password_hash) delete updatePayload.password_hash;
+        const updatePayload: UserUpdateRequest = {
+          ...payload,
+        };
+
+        if (!updatePayload.password) {
+          delete updatePayload.password;
+        }
+
         await updateUser(editingId, updatePayload);
+
         setNotice('Đã cập nhật người dùng thành công.');
       }
+
       closeForm();
-      await loadUsers();
+      const targetPage = editingId === null ? 1 : page;
+      if (targetPage !== page) setPage(targetPage);
+      await loadUsers(targetPage);
     } catch (saveError) {
       setError(getErrorMessage(saveError));
     } finally {
@@ -143,11 +215,17 @@ export default function UsersPage() {
 
   async function handleDelete() {
     if (!deletingUser) return;
+
     setSaving(true);
+    setError('');
+
     try {
       await deleteUser(deletingUser.id);
+
       setDeletingUser(null);
+
       setNotice('Đã xóa người dùng.');
+
       await loadUsers();
     } catch (deleteError) {
       setError(getErrorMessage(deleteError));
@@ -159,37 +237,25 @@ export default function UsersPage() {
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-[#f4f7fb] text-slate-900">
       <main className="mx-auto max-w-7xl px-5 py-8 lg:px-8">
+        {/* Header */}
         <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
             <p className="text-sm text-slate-500">Quản trị hệ thống</p>
+
             <h2 className="mt-1 text-xl font-bold">Danh sách người dùng</h2>
           </div>
-          <button
-            type="button"
-            onClick={openCreate}
-            className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white hover:bg-cyan-800"
-          >
+
+          <Button type="button" onClick={openCreate}>
             + Thêm người dùng
-          </button>
+          </Button>
         </div>
+
+        {/* Statistics */}
         <div className="mb-6 grid gap-4 sm:grid-cols-4">
-          <Stat label="Tổng người dùng" value={users.length} />
-          <Stat
-            label="Đang hoạt động"
-            value={users.filter((user) => user.status === 'ACTIVE').length}
-            tone="text-emerald-600"
-          />
-          <Stat
-            label="Không hoạt động"
-            value={users.filter((user) => user.status === 'INACTIVE').length}
-            tone="text-slate-500"
-          />
-          <Stat
-            label="Bị khóa"
-            value={users.filter((user) => user.status === 'BLOCKED').length}
-            tone="text-rose-600"
-          />
+          <StatCard label="Tổng người dùng" value={pagination.total} />
         </div>
+
+        {/* Alerts */}
         {notice && (
           <Alert
             message={notice}
@@ -197,9 +263,12 @@ export default function UsersPage() {
             onClose={() => setNotice('')}
           />
         )}
+
         {error && (
           <Alert message={error} type="error" onClose={() => setError('')} />
         )}
+
+        {/* Table */}
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           {loading ? (
             <div className="px-5 py-16 text-center text-sm text-slate-500">
@@ -208,6 +277,7 @@ export default function UsersPage() {
           ) : users.length === 0 ? (
             <div className="px-5 py-16 text-center">
               <p className="font-bold">Chưa có người dùng nào</p>
+
               <p className="mt-1 text-sm text-slate-500">
                 Tạo người dùng đầu tiên để bắt đầu.
               </p>
@@ -218,16 +288,21 @@ export default function UsersPage() {
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-5 py-3 font-semibold">Người dùng</th>
+
                     <th className="px-5 py-3 font-semibold">
                       Email / điện thoại
                     </th>
+
                     <th className="px-5 py-3 font-semibold">ID vai trò</th>
+
                     <th className="px-5 py-3 font-semibold">Trạng thái</th>
+
                     <th className="px-5 py-3 text-right font-semibold">
                       Thao tác
                     </th>
                   </tr>
                 </thead>
+
                 <tbody className="divide-y divide-slate-100">
                   {users.map((user) => (
                     <tr key={user.id} className="hover:bg-slate-50">
@@ -235,7 +310,7 @@ export default function UsersPage() {
                         <div className="flex items-center gap-3">
                           {user.avatar_url ? (
                             <img
-                              src={user.avatar_url}
+                              src={resolveImageUrl(user.avatar_url)}
                               alt=""
                               className="h-10 w-10 rounded-full object-cover"
                             />
@@ -244,22 +319,31 @@ export default function UsersPage() {
                               {user.full_name.charAt(0).toUpperCase()}
                             </div>
                           )}
+
                           <div>
                             <p className="font-bold">{user.full_name}</p>
+
                             <p className="text-xs text-slate-500">#{user.id}</p>
                           </div>
                         </div>
                       </td>
+
                       <td className="px-5 py-4 text-slate-600">
                         <p>{user.email}</p>
+
                         <p className="text-xs text-slate-500">
                           {user.phone || 'Chưa có số điện thoại'}
                         </p>
                       </td>
-                      <td className="px-5 py-4">#{user.role_id}</td>
+
+                      <td className="px-5 py-4">{user.role_name}</td>
+
+                      {/* Status */}
                       <td className="px-5 py-4">
-                        <StatusBadge status={user.status} />
+                        <UserStatusBadge status={user.status} />
                       </td>
+
+                      {/* Actions */}
                       <td className="px-5 py-4 text-right">
                         <button
                           type="button"
@@ -268,6 +352,7 @@ export default function UsersPage() {
                         >
                           Sửa
                         </button>
+
                         <button
                           type="button"
                           onClick={() => setDeletingUser(user)}
@@ -283,131 +368,116 @@ export default function UsersPage() {
             </div>
           )}
         </section>
+        <Pagination pagination={pagination} onPageChange={setPage} />
       </main>
-      {formOpen && (
-        <Modal
-          title={
-            editingId === null ? 'Thêm người dùng' : 'Chỉnh sửa người dùng'
-          }
-          onClose={closeForm}
-        >
-          <UserForm
-            form={form}
-            editing={editingId !== null}
-            saving={saving}
-            onChange={updateField}
-            onSubmit={handleSubmit}
-            onCancel={closeForm}
-          />
-        </Modal>
-      )}
-      {deletingUser && (
-        <Modal title="Xác nhận xóa" onClose={() => setDeletingUser(null)}>
-          <div className="p-6">
-            <p className="text-sm text-slate-600">
-              Bạn có chắc muốn xóa người dùng{' '}
-              <strong>{deletingUser.full_name}</strong> không?
-            </p>
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setDeletingUser(null)}
-                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => void handleDelete()}
-                className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-              >
-                {saving ? 'Đang xóa...' : 'Xóa người dùng'}
-              </button>
-            </div>
+
+      {/* Create / Edit Modal */}
+      <Modal
+        open={formOpen}
+        title={editingId === null ? 'Thêm người dùng' : 'Chỉnh sửa người dùng'}
+        onClose={closeForm}
+      >
+        <UserForm
+          form={form}
+          roles={roles}
+          editing={editingId !== null}
+          saving={saving}
+          uploadingImage={uploadingImage}
+          onUploadError={setError}
+          onUploadingChange={setUploadingImage}
+          onChange={updateField}
+          onSubmit={handleSubmit}
+          onCancel={closeForm}
+        />
+      </Modal>
+
+      {/* Delete Modal */}
+      <Modal
+        open={!!deletingUser}
+        title="Xác nhận xóa"
+        onClose={() => setDeletingUser(null)}
+      >
+        <div>
+          <p className="text-sm text-slate-600">
+            Bạn có chắc muốn xóa người dùng{' '}
+            <strong>{deletingUser?.full_name}</strong> không?
+          </p>
+
+          <div className="mt-6 flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setDeletingUser(null)}
+            >
+              Hủy
+            </Button>
+
+            <Button
+              type="button"
+              variant="danger"
+              loading={saving}
+              onClick={() => void handleDelete()}
+            >
+              Xóa người dùng
+            </Button>
           </div>
-        </Modal>
-      )}
+        </div>
+      </Modal>
     </div>
   );
 }
 
-function Stat({
-  label,
-  value,
-  tone = 'text-slate-900',
-}: {
-  label: string;
-  value: number;
-  tone?: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className={`mt-2 text-3xl font-black ${tone}`}>
-        {value.toLocaleString('vi-VN')}
-      </p>
-    </div>
-  );
-}
+/* =========================
+   User Status Badge
+========================= */
 
-function Alert({
-  message,
-  type,
-  onClose,
-}: {
-  message: string;
-  type: 'success' | 'error';
-  onClose: () => void;
-}) {
-  return (
-    <div
-      className={`mb-5 flex justify-between rounded-xl border px-4 py-3 text-sm ${type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'}`}
-    >
-      <span>{message}</span>
-      <button type="button" onClick={onClose} aria-label="Đóng thông báo">
-        &times;
-      </button>
-    </div>
-  );
-}
-
-function StatusBadge({ status }: { status: UserStatus }) {
+function UserStatusBadge({ status }: { status: UserStatus }) {
   const labels: Record<UserStatus, string> = {
     ACTIVE: 'Đang hoạt động',
     INACTIVE: 'Không hoạt động',
     BLOCKED: 'Bị khóa',
   };
-  const styles: Record<UserStatus, string> = {
-    ACTIVE: 'bg-emerald-50 text-emerald-700',
-    INACTIVE: 'bg-slate-100 text-slate-500',
-    BLOCKED: 'bg-rose-50 text-rose-700',
+
+  const variants: Record<UserStatus, 'success' | 'default' | 'danger'> = {
+    ACTIVE: 'success',
+    INACTIVE: 'default',
+    BLOCKED: 'danger',
   };
-  return (
-    <span
-      className={`rounded-full px-2.5 py-1 text-xs font-bold ${styles[status]}`}
-    >
-      {labels[status]}
-    </span>
-  );
+
+  return <Badge variant={variants[status]}>{labels[status]}</Badge>;
 }
+
+/* =========================
+   User Form
+========================= */
 
 interface UserFormProps {
   form: UserRequest;
+  roles: ResourceRow[];
   editing: boolean;
   saving: boolean;
+  uploadingImage: boolean;
+  onUploadError: (message: string) => void;
+  onUploadingChange: (uploading: boolean) => void;
+
   onChange: <K extends keyof UserRequest>(
     field: K,
     value: UserRequest[K],
   ) => void;
+
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+
   onCancel: () => void;
 }
 
 function UserForm({
   form,
+  roles,
   editing,
   saving,
+  uploadingImage,
+  onUploadError,
+  onUploadingChange,
   onChange,
   onSubmit,
   onCancel,
@@ -415,168 +485,104 @@ function UserForm({
   return (
     <form
       onSubmit={onSubmit}
-      className="max-h-[80vh] space-y-4 overflow-y-auto p-6"
+      className="max-h-[80vh] space-y-4 overflow-y-auto"
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field
+        <Input
           id="full-name"
           label="Họ và tên"
-          value={form.full_name}
-          onChange={(value) => onChange('full_name', value)}
+          value={form.fullName}
+          onChange={(event) => onChange('fullName', event.target.value)}
           required
           maxLength={150}
         />
-        <NumberField
+
+        <Select
           id="role-id"
-          label="ID vai trò"
-          value={form.role_id}
-          onChange={(value) => onChange('role_id', value)}
+          label="Vai trò"
+          value={form.roleId || ''}
+          onChange={(event) => onChange('roleId', Number(event.target.value))}
           required
+          options={[
+            { label: 'Chọn vai trò', value: '' },
+            ...roles.map((role) => ({
+              label: String(role.name || role.id),
+              value: role.id,
+            })),
+          ]}
         />
       </div>
+
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field
+        <Input
           id="email"
           label="Email"
           type="email"
           value={form.email}
-          onChange={(value) => onChange('email', value)}
+          onChange={(event) => onChange('email', event.target.value)}
           required
           maxLength={150}
         />
-        <Field
+
+        <Input
           id="phone"
           label="Số điện thoại"
           value={form.phone}
-          onChange={(value) => onChange('phone', value)}
+          onChange={(event) => onChange('phone', event.target.value)}
           maxLength={20}
         />
       </div>
-      <Field
+
+      <Input
         id="password"
         label={editing ? 'Mật khẩu mới' : 'Mật khẩu'}
         type="password"
-        value={form.password_hash}
-        onChange={(value) => onChange('password_hash', value)}
+        value={form.password}
+        onChange={(event) => onChange('password', event.target.value)}
         required={!editing}
         maxLength={255}
       />
-      <Field
-        id="avatar-url"
-        label="URL ảnh đại diện"
-        type="url"
-        value={form.avatar_url}
-        onChange={(value) => onChange('avatar_url', value)}
-        maxLength={500}
+
+      <ImageUpload
+        label="Ảnh đại diện"
+        value={form.avatarUrl}
+        onChange={(url) => onChange('avatarUrl', url)}
+        onError={onUploadError}
+        onUploadingChange={onUploadingChange}
       />
-      <div>
-        <label
-          htmlFor="user-status"
-          className="mb-1.5 block text-sm font-semibold"
-        >
-          Trạng thái
-        </label>
-        <select
-          id="user-status"
-          value={form.status}
-          onChange={(event) =>
-            onChange('status', event.target.value as UserStatus)
-          }
-          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
-        >
-          <option value="ACTIVE">Đang hoạt động</option>
-          <option value="INACTIVE">Không hoạt động</option>
-          <option value="BLOCKED">Bị khóa</option>
-        </select>
-      </div>
+
+      <Select
+        id="user-status"
+        label="Trạng thái"
+        value={form.status}
+        onChange={(event) =>
+          onChange('status', event.target.value as UserStatus)
+        }
+        options={[
+          {
+            value: 'ACTIVE',
+            label: 'Đang hoạt động',
+          },
+          {
+            value: 'INACTIVE',
+            label: 'Không hoạt động',
+          },
+          {
+            value: 'BLOCKED',
+            label: 'Bị khóa',
+          },
+        ]}
+      />
+
       <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold"
-        >
+        <Button type="button" variant="secondary" onClick={onCancel}>
           Hủy
-        </button>
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-        >
-          {saving ? 'Đang lưu...' : 'Lưu người dùng'}
-        </button>
+        </Button>
+
+        <Button type="submit" loading={saving || uploadingImage}>
+          Lưu người dùng
+        </Button>
       </div>
     </form>
-  );
-}
-
-function Field({
-  id,
-  label,
-  type = 'text',
-  value,
-  onChange,
-  required = false,
-  maxLength,
-}: {
-  id: string;
-  label: string;
-  type?: string;
-  value: string;
-  onChange: (value: string) => void;
-  required?: boolean;
-  maxLength?: number;
-}) {
-  return (
-    <div>
-      <label
-        htmlFor={`user-${id}`}
-        className="mb-1.5 block text-sm font-semibold"
-      >
-        {label} {required && <span className="text-rose-500">*</span>}
-      </label>
-      <input
-        id={`user-${id}`}
-        type={type}
-        required={required}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        maxLength={maxLength}
-        className="w-full rounded-xl border border-slate-300 px-3 py-2.5 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
-      />
-    </div>
-  );
-}
-
-function NumberField({
-  id,
-  label,
-  value,
-  onChange,
-  required = false,
-}: {
-  id: string;
-  label: string;
-  value: number;
-  onChange: (value: number) => void;
-  required?: boolean;
-}) {
-  return (
-    <div>
-      <label
-        htmlFor={`user-${id}`}
-        className="mb-1.5 block text-sm font-semibold"
-      >
-        {label} {required && <span className="text-rose-500">*</span>}
-      </label>
-      <input
-        id={`user-${id}`}
-        type="number"
-        min="1"
-        required={required}
-        value={value || ''}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="w-full rounded-xl border border-slate-300 px-3 py-2.5 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
-      />
-    </div>
   );
 }

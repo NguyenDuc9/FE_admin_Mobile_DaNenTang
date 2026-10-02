@@ -9,10 +9,21 @@ interface SidebarProps {
 }
 
 const navigationItems = [
-  { label: 'Tổng quan', href: '/', icon: '⌂' },
-  { label: 'Danh mục', href: '/categories', icon: '#' },
-  { label: 'Sản phẩm', href: '/products', icon: '▣' },
-  { label: 'Người dùng', href: '/users', icon: '♙' },
+  { label: 'Tổng quan', href: '/admin', icon: '⌂' },
+  { label: 'Danh mục', href: '/admin/categories', icon: '#' },
+  { label: 'Thương hiệu', href: '/admin/brands', icon: 'B' },
+  { label: 'Sản phẩm', href: '/admin/products', icon: '▣' },
+  { label: 'Biến thể', href: '/admin/product-variants', icon: '◇' },
+  { label: 'Ảnh sản phẩm', href: '/admin/product-images', icon: '▧' },
+  { label: 'Đánh giá', href: '/admin/reviews', icon: '★' },
+  { label: 'Voucher', href: '/admin/vouchers', icon: '%' },
+  { label: 'Đơn hàng', href: '/admin/orders', icon: '□' },
+  { label: 'Yêu thích', href: '/admin/favorites', icon: '♡' },
+  { label: 'Tồn kho', href: '/admin/inventory', icon: '▥' },
+  { label: 'Bảo hành', href: '/admin/warranties', icon: '◷' },
+  { label: 'Người dùng', href: '/admin/users', icon: '♙' },
+  { label: 'Vai trò', href: '/admin/roles', icon: '⚑' },
+  { label: 'Cấu hình mẫu', href: '/admin/build-templates', icon: '▤' },
 ];
 
 export default function Sidebar({ open, onClose }: SidebarProps) {
@@ -40,15 +51,15 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             Store<span className="text-cyan-400">Admin</span>
           </Link>
         </div>
-        <nav className="flex-1 px-3 py-5" aria-label="Điều hướng chính">
+        <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-5" aria-label="Điều hướng chính">
           <p className="px-3 pb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
             Workspace
           </p>
           <div className="space-y-1">
             {navigationItems.map((item) => {
               const isActive =
-                item.href === '/'
-                  ? pathname === '/'
+                item.href === '/admin'
+                  ? pathname === item.href
                   : pathname.startsWith(item.href);
 
               return (

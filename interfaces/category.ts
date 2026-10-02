@@ -5,10 +5,10 @@ export interface Category {
   name: string;
   slug: string;
   description: string | null;
-  imageUrl: string | null;
+  image_url: string | null;
   status: CategoryStatus;
-  createdAt?: string;
-  updatedAt?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface CategoryRequest {
