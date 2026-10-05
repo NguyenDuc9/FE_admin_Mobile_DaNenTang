@@ -499,10 +499,11 @@ export default function CrudManager({
                       <th
                         key={column.name}
                         className={`px-5 py-3 font-semibold ${
-                          isCurrencyColumn(column.name) ||
-                          rows.some((row) =>
-                            isNumericColumn(column.name, row[column.name]),
-                          )
+                          column.name !== 'rating' &&
+                          (isCurrencyColumn(column.name) ||
+                            rows.some((row) =>
+                              isNumericColumn(column.name, row[column.name]),
+                            ))
                             ? 'text-right'
                             : ''
                         }`}
@@ -521,14 +522,55 @@ export default function CrudManager({
                       {definition.columns.map((column) => (
                         <td
                           key={column.name}
-                          className={`max-w-xs truncate px-5 py-4 text-slate-700 ${
-                            isCurrencyColumn(column.name) ||
-                            isNumericColumn(column.name, row[column.name])
+                          className={`${
+                            column.name === 'comment'
+                              ? 'max-w-md whitespace-normal'
+                              : 'max-w-xs truncate'
+                          } px-5 py-4 text-slate-700 ${
+                            column.name !== 'rating' &&
+                            (isCurrencyColumn(column.name) ||
+                              isNumericColumn(column.name, row[column.name]))
                               ? 'text-right tabular-nums'
                               : ''
                           }`}
                         >
                           {(() => {
+                            if (column.name === 'rating') {
+                              const value = row[column.name];
+                              if (
+                                value === null ||
+                                value === undefined ||
+                                value === ''
+                              ) {
+                                return '—';
+                              }
+                              const rating = Number(value);
+                              if (!Number.isFinite(rating)) return '—';
+                              const stars = Math.min(
+                                5,
+                                Math.max(0, Math.round(rating)),
+                              );
+                              return (
+                                <span
+                                  role="img"
+                                  aria-label={`${stars} trên 5 sao`}
+                                  className="whitespace-nowrap text-lg tracking-wide"
+                                >
+                                  {Array.from({ length: 5 }, (_, index) => (
+                                    <span
+                                      key={index}
+                                      className={
+                                        index < stars
+                                          ? 'text-amber-400'
+                                          : 'text-slate-300'
+                                      }
+                                    >
+                                      {index < stars ? '★' : '☆'}
+                                    </span>
+                                  ))}
+                                </span>
+                              );
+                            }
                             const field = definition.fields.find(
                               (item) => item.name === column.name,
                             );

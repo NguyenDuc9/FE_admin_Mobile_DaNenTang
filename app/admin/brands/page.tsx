@@ -33,7 +33,6 @@ const definition: ResourceDefinition = {
     },
   ],
   columns: [
-    { name: 'id', label: 'ID' },
     { name: 'name', label: 'Thương hiệu' },
     { name: 'logo_url', label: 'Logo' },
     { name: 'slug', label: 'Slug' },

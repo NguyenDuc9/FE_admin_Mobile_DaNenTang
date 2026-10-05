@@ -45,11 +45,10 @@ const definition: ResourceDefinition = {
     },
   ],
   columns: [
-    { name: 'id', label: 'ID' },
     { name: 'user_id', label: 'Người dùng' },
     { name: 'product_id', label: 'Sản phẩm' },
     { name: 'rating', label: 'Số sao' },
-    { name: 'status', label: 'Trạng thái' },
+    { name: 'comment', label: 'Nội dung đánh giá' },
     { name: 'created_at', label: 'Ngày tạo' },
   ],
 };
