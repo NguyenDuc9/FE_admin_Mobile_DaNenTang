@@ -4,8 +4,7 @@ import api from './api';
 
 export async function getProductsPage(page: number) {
   const result = await api.get<
-    | Product[]
-    | { data: Product[]; pagination?: PaginationInfo }
+    Product[] | { data: Product[]; pagination?: PaginationInfo }
   >(`/api/products?page=${page}&limit=15`);
   const products = Array.isArray(result) ? result : result.data;
   const pagination = Array.isArray(result)

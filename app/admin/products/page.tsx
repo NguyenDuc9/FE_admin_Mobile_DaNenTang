@@ -5,14 +5,17 @@ import type { FormEvent } from 'react';
 import {
   createProduct,
   deleteProduct,
-  getProductsPage,
+  getProducts,
   updateProduct,
 } from '@/api/productApi';
 import { getResourceList } from '@/api/adminResourceApi';
 import Modal from '@/components/Modal';
 import Pagination from '@/components/Pagination';
 import ImageUpload from '@/components/ImageUpload';
+import ProductVariantsManager from '@/components/ProductVariantsManager';
 import { resolveImageUrl } from '@/api/api';
+import AdminSearch, { matchesSearch } from '@/components/AdminSearch';
+import { formatGroupedNumber } from '@/utils/displayFormat';
 import {
   createProductImage,
   deleteProductImage,
@@ -33,14 +36,54 @@ const emptyForm: ProductRequest = {
   status: 'DRAFT',
 };
 
+const productStatusLabels: Record<string, string> = {
+  DRAFT: 'Bản nháp',
+  ACTIVE: 'Đang bán',
+  INACTIVE: 'Ngừng bán',
+};
+const pageSize = 15;
+
 function getErrorMessage(error: unknown) {
   return error instanceof Error
     ? error.message
     : 'Đã có lỗi xảy ra. Vui lòng thử lại.';
 }
 
+function matchesProductSearch(product: Product, search: string) {
+  return matchesSearch(
+    [
+      product.id,
+      product.name,
+      product.slug,
+      product.description,
+      product.category_name,
+      product.brand_name,
+      product.status,
+    ],
+    search,
+  );
+}
+
+async function fetchPrimaryProductImages() {
+  const images = await getResourceList('/api/product-images');
+  const primaryImages: Record<number, string> = {};
+  for (const image of images) {
+    if (
+      (image.is_primary === true || image.is_primary === 1) &&
+      typeof image.product_id === 'number' &&
+      typeof image.image_url === 'string'
+    ) {
+      primaryImages[image.product_id] = image.image_url;
+    }
+  }
+  return primaryImages;
+}
+
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [primaryImages, setPrimaryImages] = useState<Record<number, string>>(
+    {},
+  );
   const [categories, setCategories] = useState<ResourceRow[]>([]);
   const [brands, setBrands] = useState<ResourceRow[]>([]);
   const [form, setForm] = useState<ProductRequest>(emptyForm);
@@ -48,30 +91,49 @@ export default function ProductsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
   const [imagesProduct, setImagesProduct] = useState<Product | null>(null);
+  const [variantsProduct, setVariantsProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({
-    page: 1,
-    limit: 15,
-    total: 0,
-    totalPages: 1,
-  });
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const filteredProducts = products.filter((product) =>
+    matchesProductSearch(product, search) &&
+    (categoryFilter === '' ||
+      product.category_id === Number(categoryFilter)),
+  );
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / pageSize));
+  const visibleProducts = filteredProducts.slice(
+    (page - 1) * pageSize,
+    page * pageSize,
+  );
+  const visiblePagination = {
+    page,
+    limit: pageSize,
+    total: filteredProducts.length,
+    totalPages,
+  };
 
   async function loadProducts(targetPage = page) {
     setLoading(true);
     setError('');
     try {
-      const result = await getProductsPage(targetPage);
-      if (targetPage > 1 && targetPage > result.pagination.totalPages) {
-        setPage(result.pagination.totalPages);
-        return;
-      }
-      setProducts(result.products);
-      setPagination(result.pagination);
+      const result = await getProducts();
+      setProducts(result);
+      const filteredCount = result.filter((product) =>
+        matchesProductSearch(product, search) &&
+        (categoryFilter === '' ||
+          product.category_id === Number(categoryFilter)),
+      ).length;
+      setPage(
+        Math.min(
+          targetPage,
+          Math.max(1, Math.ceil(filteredCount / pageSize)),
+        ),
+      );
     } catch (loadError) {
       setError(getErrorMessage(loadError));
     } finally {
@@ -79,17 +141,16 @@ export default function ProductsPage() {
     }
   }
 
+  async function loadPrimaryImages() {
+    setPrimaryImages(await fetchPrimaryProductImages());
+  }
+
   useEffect(() => {
     let active = true;
-    getProductsPage(page)
+    getProducts()
       .then((result) => {
         if (!active) return;
-        if (page > 1 && page > result.pagination.totalPages) {
-          setPage(result.pagination.totalPages);
-          return;
-        }
-        setProducts(result.products);
-        setPagination(result.pagination);
+        setProducts(result);
       })
       .catch((loadError: unknown) => {
         if (active) setError(getErrorMessage(loadError));
@@ -100,7 +161,22 @@ export default function ProductsPage() {
     return () => {
       active = false;
     };
-  }, [page]);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetchPrimaryProductImages()
+      .then((images) => {
+        if (!active) return;
+        setPrimaryImages(images);
+      })
+      .catch((loadError: unknown) => {
+        if (active) setError(getErrorMessage(loadError));
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -227,7 +303,7 @@ export default function ProductsPage() {
           </button>
         </div>
         <div className="mb-6 grid gap-4 sm:grid-cols-3">
-          <Stat label="Tổng sản phẩm" value={pagination.total} />
+          <Stat label="Tổng sản phẩm" value={products.length} />
         </div>
         {notice && (
           <Alert
@@ -239,14 +315,50 @@ export default function ProductsPage() {
         {error && (
           <Alert message={error} type="error" onClose={() => setError('')} />
         )}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+          <AdminSearch
+            value={search}
+            onChange={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+            placeholder="Tìm sản phẩm theo tên, slug, danh mục..."
+          />
+          <label className="mb-4 block">
+            <span className="sr-only">Lọc sản phẩm theo danh mục</span>
+            <select
+              value={categoryFilter}
+              onChange={(event) => {
+                setCategoryFilter(event.target.value);
+                setPage(1);
+              }}
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-cyan-700 focus:ring-2 focus:ring-cyan-100 sm:min-w-56"
+            >
+              <option value="">Tất cả danh mục</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {String(category.name || `Danh mục ${category.id}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <Pagination
+          pagination={visiblePagination}
+          onPageChange={setPage}
+        />
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           {loading ? (
             <div className="px-5 py-16 text-center text-sm text-slate-500">
               Đang tải danh sách...
             </div>
-          ) : products.length === 0 ? (
+          ) : visibleProducts.length === 0 ? (
             <div className="px-5 py-16 text-center">
-              <p className="font-bold">Chưa có sản phẩm nào</p>
+              <p className="font-bold">
+                {search || categoryFilter
+                  ? 'Không tìm thấy sản phẩm phù hợp'
+                  : 'Chưa có sản phẩm nào'}
+              </p>
               <p className="mt-1 text-sm text-slate-500">
                 Tạo sản phẩm đầu tiên để bắt đầu.
               </p>
@@ -268,13 +380,17 @@ export default function ProductsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {products.map((product) => (
+                  {visibleProducts.map((product) => (
                     <tr key={product.id} className="hover:bg-slate-50">
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
-                          {product.thumbnail_url ? (
+                          {(primaryImages[product.id] || product.thumbnail_url) ? (
                             <img
-                              src={resolveImageUrl(product.thumbnail_url)}
+                              src={resolveImageUrl(
+                                primaryImages[product.id] ||
+                                  product.thumbnail_url ||
+                                  '',
+                              )}
                               alt=""
                               className="h-11 w-11 rounded-lg object-cover"
                             />
@@ -301,16 +417,24 @@ export default function ProductsPage() {
                         <span
                           className={`rounded-full px-2.5 py-1 text-xs font-bold ${product.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}
                         >
-                          {product.status}
+                          {productStatusLabels[product.status] ||
+                            'Trạng thái khác'}
                         </span>
                       </td>
                       <td className="px-5 py-4 text-right">
                         <button
                           type="button"
+                          onClick={() => setVariantsProduct(product)}
+                          className="mr-3 font-semibold text-indigo-700 hover:text-indigo-900"
+                        >
+                          Biến thể
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => setImagesProduct(product)}
                           className="mr-3 font-semibold text-indigo-700 hover:text-indigo-900"
                         >
-                          Xem chi tiết
+                          Ảnh sản phẩm
                         </button>
                         <button
                           type="button"
@@ -334,7 +458,10 @@ export default function ProductsPage() {
             </div>
           )}
         </section>
-        <Pagination pagination={pagination} onPageChange={setPage} />
+        <Pagination
+          pagination={visiblePagination}
+          onPageChange={setPage}
+        />
       </main>
       {formOpen && (
         <Modal
@@ -386,7 +513,19 @@ export default function ProductsPage() {
         <ProductImagesManager
           key={imagesProduct.id}
           product={imagesProduct}
-          onClose={() => setImagesProduct(null)}
+          onClose={() => {
+            setImagesProduct(null);
+            void loadPrimaryImages().catch((loadError: unknown) =>
+              setError(getErrorMessage(loadError)),
+            );
+          }}
+        />
+      )}
+      {variantsProduct && (
+        <ProductVariantsManager
+          key={variantsProduct.id}
+          product={variantsProduct}
+          onClose={() => setVariantsProduct(null)}
         />
       )}
     </div>
@@ -447,13 +586,18 @@ function ProductImagesManager({
       setError('Vui lòng tải ảnh lên trước khi thêm.');
       return;
     }
+    const nextAvailableOrder = new Set(
+      images.map((image) => image.sort_order),
+    );
+    let defaultOrder = 1;
+    while (nextAvailableOrder.has(defaultOrder)) defaultOrder += 1;
     setSaving(true);
     setError('');
     try {
       await createProductImage({
         product_id: product.id,
         image_url: imageUrl,
-        sort_order: sortOrder === '' ? null : sortOrder,
+        sort_order: sortOrder === '' ? defaultOrder : sortOrder,
         is_primary: isPrimary,
       });
       setImageUrl('');
@@ -470,9 +614,9 @@ function ProductImagesManager({
 
   async function updateImage(
     image: ProductImage,
-    changes: Partial<
-      Pick<ProductImage, 'image_url' | 'is_primary'>
-    > & { sort_order?: number | null },
+    changes: Partial<Pick<ProductImage, 'image_url' | 'is_primary'>> & {
+      sort_order?: number | null;
+    },
   ) {
     setSaving(true);
     setError('');
@@ -483,7 +627,7 @@ function ProductImagesManager({
         sort_order:
           changes.sort_order === null
             ? null
-            : changes.sort_order ?? image.sort_order,
+            : (changes.sort_order ?? image.sort_order),
         is_primary: changes.is_primary ?? Boolean(image.is_primary),
       });
       setNotice('Đã cập nhật ảnh sản phẩm.');
@@ -541,11 +685,10 @@ function ProductImagesManager({
                 min={0}
                 step={1}
                 value={sortOrder}
+                placeholder="Tự động"
                 onChange={(event) =>
                   setSortOrder(
-                    event.target.value === ''
-                      ? ''
-                      : Number(event.target.value),
+                    event.target.value === '' ? '' : Number(event.target.value),
                   )
                 }
                 className="mt-1 block w-24 rounded-lg border border-slate-300 px-3 py-2"
@@ -600,9 +743,10 @@ function ProductImagesManager({
                     step={1}
                     defaultValue={image.sort_order}
                     onBlur={(event) => {
-                      const nextOrder = event.currentTarget.value === ''
-                        ? null
-                        : Number(event.currentTarget.value);
+                      const nextOrder =
+                        event.currentTarget.value === ''
+                          ? null
+                          : Number(event.currentTarget.value);
                       if (nextOrder !== image.sort_order) {
                         void updateImage(image, { sort_order: nextOrder });
                       }
@@ -656,8 +800,8 @@ function Stat({
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5">
       <p className="text-sm text-slate-500">{label}</p>
-      <p className={`mt-2 text-3xl font-black ${tone}`}>
-        {value.toLocaleString('vi-VN')}
+      <p className={`mt-2 text-right text-3xl font-black tabular-nums ${tone}`}>
+        {formatGroupedNumber(value)}
       </p>
     </div>
   );

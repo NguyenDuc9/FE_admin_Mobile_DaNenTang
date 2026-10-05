@@ -5,8 +5,7 @@ import api from './api';
 
 export async function getUsersPage(page: number) {
   const result = await api.get<
-    | User[]
-    | { data: User[]; pagination?: PaginationInfo }
+    User[] | { data: User[]; pagination?: PaginationInfo }
   >(`/api/users?page=${page}&limit=15`);
   const users = Array.isArray(result) ? result : result.data;
   const pagination = Array.isArray(result)

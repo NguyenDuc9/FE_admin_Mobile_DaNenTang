@@ -4,7 +4,7 @@ import type { ResourceDefinition } from '@/interfaces/adminResources';
 const definition: ResourceDefinition = {
   title: 'Đánh giá',
   description: 'Theo dõi và chỉnh sửa đánh giá sản phẩm.',
-  endpoint: '/api/reviews',
+  endpoint: '/api/admin-fe/reviews',
   fields: [
     {
       name: 'user_id',

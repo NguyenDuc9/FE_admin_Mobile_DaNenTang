@@ -2,20 +2,102 @@
 
 import { useEffect, useState } from 'react';
 import { getResourcePage } from '@/api/adminResourceApi';
-import { updateOrderStatus } from '@/api/orderAdminApi';
+import {
+  getOrderDetails,
+  updateOrderStatus,
+  type OrderDetail,
+} from '@/api/orderAdminApi';
 import Modal from '@/components/Modal';
 import Pagination from '@/components/Pagination';
 import type { ResourceRow } from '@/interfaces/adminResources';
+import AdminSearch, { matchesSearch } from '@/components/AdminSearch';
+import { formatDateTime, formatVnd } from '@/utils/displayFormat';
 
-const nextStatuses: Record<string, string[]> = {
+const orderStatuses = [
+  'PENDING',
+  'CONFIRMED',
+  'PROCESSING',
+  'PACKED',
+  'SHIPPING',
+  'DELIVERED',
+  'COMPLETED',
+  'CANCELLED',
+  'DELIVERY_FAILED',
+] as const;
+
+type OrderStatus = (typeof orderStatuses)[number];
+
+const nextStatuses: Record<OrderStatus, OrderStatus[]> = {
   PENDING: ['CONFIRMED', 'CANCELLED'],
   CONFIRMED: ['PROCESSING', 'CANCELLED'],
   PROCESSING: ['PACKED', 'DELIVERY_FAILED'],
   PACKED: ['SHIPPING'],
   SHIPPING: ['DELIVERED', 'DELIVERY_FAILED'],
   DELIVERED: ['COMPLETED'],
+  COMPLETED: [],
+  CANCELLED: [],
   DELIVERY_FAILED: ['SHIPPING', 'CANCELLED'],
 };
+
+function getNextStatuses(status: unknown): OrderStatus[] {
+  if (
+    typeof status !== 'string' ||
+    !orderStatuses.includes(status as OrderStatus)
+  ) {
+    return [];
+  }
+  return nextStatuses[status as OrderStatus];
+}
+
+const statusLabels: Record<OrderStatus, string> = {
+  PENDING: 'Chờ xác nhận',
+  CONFIRMED: 'Đã xác nhận',
+  PROCESSING: 'Đang chuẩn bị',
+  PACKED: 'Đã đóng gói',
+  SHIPPING: 'Đang giao',
+  DELIVERED: 'Đã giao',
+  COMPLETED: 'Hoàn thành',
+  CANCELLED: 'Đã hủy',
+  DELIVERY_FAILED: 'Giao thất bại',
+};
+
+const orderStatusColors: Record<OrderStatus, string> = {
+  PENDING: 'border-amber-200 bg-amber-50 text-amber-800',
+  CONFIRMED: 'border-blue-200 bg-blue-50 text-blue-800',
+  PROCESSING: 'border-indigo-200 bg-indigo-50 text-indigo-800',
+  PACKED: 'border-purple-200 bg-purple-50 text-purple-800',
+  SHIPPING: 'border-cyan-200 bg-cyan-50 text-cyan-800',
+  DELIVERED: 'border-teal-200 bg-teal-50 text-teal-800',
+  COMPLETED: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  CANCELLED: 'border-rose-200 bg-rose-50 text-rose-800',
+  DELIVERY_FAILED: 'border-orange-200 bg-orange-50 text-orange-800',
+};
+
+const paymentStatusLabels: Record<string, string> = {
+  PENDING: 'Chờ thanh toán',
+  PAID: 'Đã thanh toán',
+  FAILED: 'Thanh toán lỗi',
+  REFUNDED: 'Đã hoàn tiền',
+};
+
+const paymentMethodLabels: Record<string, string> = {
+  COD: 'Thanh toán khi nhận hàng',
+  BANK_TRANSFER: 'Chuyển khoản ngân hàng',
+  MOMO: 'Ví MoMo',
+  VNPAY: 'VNPAY',
+};
+
+const paymentStatusColors: Record<string, string> = {
+  PENDING: 'border-amber-200 bg-amber-50 text-amber-800',
+  PAID: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  FAILED: 'border-rose-200 bg-rose-50 text-rose-800',
+  REFUNDED: 'border-slate-200 bg-slate-50 text-slate-700',
+};
+
+function getOrderStatusClass(status: unknown) {
+  return orderStatusColors[String(status) as OrderStatus] ||
+    'border-slate-200 bg-slate-50 text-slate-700';
+}
 
 function errorMessage(error: unknown) {
   return error instanceof Error
@@ -26,6 +108,10 @@ function errorMessage(error: unknown) {
 export default function OrdersPage() {
   const [orders, setOrders] = useState<ResourceRow[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<ResourceRow | null>(null);
+  const [detailOrder, setDetailOrder] = useState<OrderDetail | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
   const [status, setStatus] = useState('');
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(true);
@@ -39,6 +125,23 @@ export default function OrdersPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [search, setSearch] = useState('');
+  const visibleOrders = orders.filter((order) =>
+    matchesSearch(
+      [
+        order.id,
+        order.order_code,
+        order.delivery_receiver_name,
+        order.delivery_phone,
+        order.status,
+        order.payment_status,
+      ],
+      search,
+    ),
+  );
+  const visiblePagination = search
+    ? { ...pagination, page: 1, total: visibleOrders.length, totalPages: 1 }
+    : pagination;
 
   async function loadOrders(targetPage = page) {
     setLoading(true);
@@ -83,9 +186,23 @@ export default function OrdersPage() {
 
   function openStatusEditor(order: ResourceRow) {
     setSelectedOrder(order);
-    setStatus(nextStatuses[String(order.status)]?.[0] || '');
+    setStatus(getNextStatuses(order.status)[0] || '');
     setReason('');
     setError('');
+  }
+
+  async function openOrderDetails(order: ResourceRow) {
+    setDetailOpen(true);
+    setDetailOrder(null);
+    setDetailError('');
+    setDetailLoading(true);
+    try {
+      setDetailOrder(await getOrderDetails(order.id));
+    } catch (detailLoadError) {
+      setDetailError(errorMessage(detailLoadError));
+    } finally {
+      setDetailLoading(false);
+    }
   }
 
   async function saveStatus() {
@@ -94,9 +211,10 @@ export default function OrdersPage() {
     setError('');
     try {
       await updateOrderStatus(selectedOrder.id, status, reason.trim());
+      const wasConfirmed = status === 'CONFIRMED';
       setSelectedOrder(null);
       setNotice(
-        `Đã cập nhật đơn ${String(selectedOrder.order_code || `#${selectedOrder.id}`)}.`,
+        `${wasConfirmed ? 'Đã xác nhận' : 'Đã cập nhật'} đơn ${String(selectedOrder.order_code || `#${selectedOrder.id}`)}.`,
       );
       await loadOrders();
     } catch (saveError) {
@@ -137,14 +255,24 @@ export default function OrdersPage() {
           <Message type="error" message={error} onClose={() => setError('')} />
         )}
 
+        <AdminSearch
+          value={search}
+          onChange={setSearch}
+          placeholder="Tìm đơn theo mã, người nhận, trạng thái..."
+        />
+
+        <Pagination
+          pagination={visiblePagination}
+          onPageChange={setPage}
+        />
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           {loading ? (
             <p className="px-5 py-16 text-center text-sm text-slate-500">
               Đang tải đơn hàng...
             </p>
-          ) : orders.length === 0 ? (
+          ) : visibleOrders.length === 0 ? (
             <p className="px-5 py-16 text-center text-sm text-slate-500">
-              Chưa có đơn hàng.
+              {search ? 'Không tìm thấy đơn hàng phù hợp.' : 'Chưa có đơn hàng.'}
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -153,7 +281,7 @@ export default function OrdersPage() {
                   <tr>
                     <th className="px-5 py-3 font-semibold">Mã đơn</th>
                     <th className="px-5 py-3 font-semibold">Người nhận</th>
-                    <th className="px-5 py-3 font-semibold">Tổng tiền</th>
+                    <th className="px-5 py-3 text-right font-semibold">Tổng tiền</th>
                     <th className="px-5 py-3 font-semibold">Thanh toán</th>
                     <th className="px-5 py-3 font-semibold">Trạng thái</th>
                     <th className="px-5 py-3 text-right font-semibold">
@@ -162,7 +290,7 @@ export default function OrdersPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {orders.map((order) => (
+                  {visibleOrders.map((order) => (
                     <tr key={order.id} className="hover:bg-slate-50">
                       <td className="px-5 py-4 font-semibold">
                         {String(order.order_code || `#${order.id}`)}
@@ -172,27 +300,50 @@ export default function OrdersPage() {
                           order.delivery_receiver_name || order.user_id || '—',
                         )}
                       </td>
-                      <td className="px-5 py-4 text-slate-700">
-                        {Number(order.total_amount || 0).toLocaleString(
-                          'vi-VN',
-                        )}{' '}
-                        ₫
-                      </td>
-                      <td className="px-5 py-4 text-slate-600">
-                        {String(order.payment_status || '—')}
+                      <td className="px-5 py-4 text-right font-medium text-slate-700 tabular-nums">
+                        {formatVnd(Number(order.total_amount || 0))}
                       </td>
                       <td className="px-5 py-4">
-                        {String(order.status || '—')}
+                        <div className="flex flex-col items-start gap-1.5">
+                          <span
+                            className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${paymentStatusColors[String(order.payment_status)] || 'border-slate-200 bg-slate-50 text-slate-700'}`}
+                          >
+                            {paymentStatusLabels[String(order.payment_status)] ||
+                              'Trạng thái thanh toán khác'}
+                          </span>
+                          {order.payment_method ? (
+                            <span className="text-xs text-slate-500">
+                              {paymentMethodLabels[String(order.payment_method)] ||
+                                'Phương thức thanh toán khác'}
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="px-5 py-4">
+                        <span
+                          className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getOrderStatusClass(order.status)}`}
+                        >
+                          {statusLabels[String(order.status) as OrderStatus] ||
+                            'Trạng thái đơn khác'}
+                        </span>
                       </td>
                       <td className="px-5 py-4 text-right">
-                        {(nextStatuses[String(order.status)] || []).length >
-                          0 && (
+                        <button
+                          type="button"
+                          onClick={() => void openOrderDetails(order)}
+                          className="mr-4 font-semibold text-indigo-700 hover:text-indigo-900"
+                        >
+                          Xem chi tiết
+                        </button>
+                        {getNextStatuses(order.status).length > 0 && (
                           <button
                             type="button"
                             onClick={() => openStatusEditor(order)}
                             className="font-semibold text-cyan-800 hover:text-cyan-950"
                           >
-                            Cập nhật trạng thái
+                            {order.status === 'PENDING'
+                              ? 'Xác nhận đơn'
+                              : 'Cập nhật trạng thái'}
                           </button>
                         )}
                       </td>
@@ -203,12 +354,48 @@ export default function OrdersPage() {
             </div>
           )}
         </section>
-        <Pagination pagination={pagination} onPageChange={setPage} />
+        <Pagination
+          pagination={visiblePagination}
+          onPageChange={setPage}
+        />
       </div>
+
+      {detailOpen && (
+        <Modal
+          title={
+            detailOrder
+              ? `Chi tiết đơn ${detailOrder.order_code}`
+              : 'Chi tiết đơn hàng'
+          }
+          onClose={() => {
+            setDetailOpen(false);
+            setDetailError('');
+            setDetailOrder(null);
+          }}
+        >
+          <div className="max-h-[75vh] space-y-5 overflow-y-auto p-6">
+            {detailLoading ? (
+              <p className="py-10 text-center text-sm text-slate-500">
+                Đang tải chi tiết đơn hàng...
+              </p>
+            ) : detailError ? (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                {detailError}
+              </div>
+            ) : detailOrder ? (
+              <OrderDetailsContent order={detailOrder} />
+            ) : null}
+          </div>
+        </Modal>
+      )}
 
       {selectedOrder && (
         <Modal
-          title="Cập nhật trạng thái đơn"
+          title={
+            selectedOrder.status === 'PENDING'
+              ? 'Xác nhận đơn hàng'
+              : 'Cập nhật trạng thái đơn'
+          }
           onClose={() => setSelectedOrder(null)}
         >
           <div className="space-y-4 p-6">
@@ -222,14 +409,19 @@ export default function OrdersPage() {
                 onChange={(event) => setStatus(event.target.value)}
                 className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal"
               >
-                {(nextStatuses[String(selectedOrder.status)] || []).map(
-                  (nextStatus) => (
+                {getNextStatuses(selectedOrder.status).map((nextStatus) => (
                     <option key={nextStatus} value={nextStatus}>
-                      {nextStatus}
+                      {statusLabels[nextStatus] || nextStatus}
                     </option>
-                  ),
-                )}
+                  ))}
               </select>
+              {status ? (
+                <span
+                  className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getOrderStatusClass(status)}`}
+                >
+                  {statusLabels[status as OrderStatus] || status}
+                </span>
+              ) : null}
             </label>
             <label className="block text-sm font-semibold">
               Ghi chú
@@ -255,13 +447,164 @@ export default function OrdersPage() {
                 onClick={() => void saveStatus()}
                 className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
               >
-                {saving ? 'Đang lưu...' : 'Lưu trạng thái'}
+                {saving
+                  ? 'Đang lưu...'
+                  : status === 'CONFIRMED'
+                    ? 'Xác nhận đơn'
+                    : 'Lưu trạng thái'}
               </button>
             </div>
           </div>
         </Modal>
       )}
     </main>
+  );
+}
+
+function OrderDetailsContent({ order }: { order: OrderDetail }) {
+  const fulfillmentLabel =
+    order.fulfillment_method === 'PICKUP'
+      ? 'Nhận tại cửa hàng'
+      : 'Giao tận nơi';
+
+  return (
+    <>
+      <section className="rounded-xl border border-slate-200 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs text-slate-500">Mã đơn</p>
+            <p className="font-semibold text-slate-900">{order.order_code}</p>
+          </div>
+          <span
+            className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getOrderStatusClass(order.status)}`}
+          >
+            {statusLabels[order.status as OrderStatus] || 'Trạng thái đơn khác'}
+          </span>
+        </div>
+        <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
+          <p>
+            Loại đơn:{' '}
+            {order.order_type === 'CUSTOM_BUILD'
+              ? 'PC tự chọn'
+              : 'Sản phẩm có sẵn'}
+          </p>
+          <p>Đặt lúc: {formatDateTime(order.created_at)}</p>
+          <p>
+            Thanh toán:{' '}
+            {paymentStatusLabels[String(order.payment_status)] ||
+              'Chưa cập nhật'}
+          </p>
+          <p>
+            Phương thức:{' '}
+            {paymentMethodLabels[String(order.payment_method)] ||
+              'Chưa cập nhật'}
+          </p>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-slate-200 p-4">
+        <h3 className="font-semibold text-slate-900">Thông tin nhận hàng</h3>
+        <div className="mt-2 space-y-1 text-sm text-slate-600">
+          <p>Hình thức: {fulfillmentLabel}</p>
+          <p>Người nhận: {order.delivery_receiver_name || '—'}</p>
+          <p>Số điện thoại: {order.delivery_phone || '—'}</p>
+          <p>
+            Địa chỉ:{' '}
+            {order.fulfillment_method === 'PICKUP'
+              ? order.pickup_store_address ||
+                order.pickup_store_name ||
+                order.delivery_address ||
+                '—'
+              : order.delivery_address || '—'}
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <h3 className="mb-2 font-semibold text-slate-900">Sản phẩm</h3>
+        {order.items?.length ? (
+          <div className="space-y-2">
+            {order.items.map((item) => (
+              <div
+                key={item.id}
+                className="rounded-xl border border-slate-200 p-3"
+              >
+                <p className="font-medium text-slate-900">
+                  {item.product_name}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {[item.variant_name, item.sku].filter(Boolean).join(' · ') ||
+                    'Sản phẩm'}
+                </p>
+                <div className="mt-2 flex justify-between gap-3 text-sm">
+                  <span className="text-slate-600">
+                    {formatVnd(Number(item.unit_price))} × {item.quantity}
+                  </span>
+                  <span className="font-semibold tabular-nums text-slate-800">
+                    {formatVnd(Number(item.subtotal))}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-xl border border-slate-200 p-4 text-sm text-slate-500">
+            Đơn hàng chưa có thông tin sản phẩm.
+          </p>
+        )}
+      </section>
+
+      <section className="space-y-2 rounded-xl bg-slate-50 p-4 text-sm">
+        <DetailAmount label="Tạm tính" value={order.subtotal} />
+        <DetailAmount label="Phí vận chuyển" value={order.shipping_fee} />
+        <DetailAmount label="Giảm giá" value={order.discount_amount} prefix="-" />
+        {order.voucher_code ? (
+          <p className="text-slate-600">Mã giảm giá: {order.voucher_code}</p>
+        ) : null}
+        <DetailAmount label="Tổng cộng" value={order.total_amount} bold />
+      </section>
+
+      {order.note ? (
+        <section className="rounded-xl border border-slate-200 p-4">
+          <h3 className="font-semibold text-slate-900">Ghi chú</h3>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">
+            {order.note}
+          </p>
+        </section>
+      ) : null}
+      {order.cancelled_reason ? (
+        <section className="rounded-xl border border-rose-200 bg-rose-50 p-4">
+          <h3 className="font-semibold text-rose-800">Lý do hủy đơn</h3>
+          <p className="mt-1 text-sm text-rose-700">
+            {order.cancelled_reason}
+          </p>
+        </section>
+      ) : null}
+    </>
+  );
+}
+
+function DetailAmount({
+  label,
+  value,
+  prefix = '',
+  bold = false,
+}: {
+  label: string;
+  value?: number | string | null;
+  prefix?: string;
+  bold?: boolean;
+}) {
+  return (
+    <div
+      className={`flex justify-between gap-4 ${bold ? 'border-t border-slate-200 pt-2 font-bold text-slate-900' : 'text-slate-600'}`}
+    >
+      <span>{label}</span>
+      <span className="text-right tabular-nums">
+        {prefix}
+        {formatVnd(Number(value || 0))}
+      </span>
+    </div>
   );
 }
 

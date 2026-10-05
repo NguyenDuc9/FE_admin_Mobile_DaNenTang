@@ -13,6 +13,14 @@ import type { WarrantyOrderItem } from '@/api/warrantyAdminApi';
 import type { ResourceRow } from '@/interfaces/adminResources';
 import Modal from '@/components/Modal';
 import Pagination from '@/components/Pagination';
+import AdminSearch, { matchesSearch } from '@/components/AdminSearch';
+import { formatDateTime } from '@/utils/displayFormat';
+
+const warrantyStatusLabels: Record<string, string> = {
+  ACTIVE: 'Đang hiệu lực',
+  EXPIRED: 'Hết hạn',
+  CLAIMED: 'Đã yêu cầu bảo hành',
+};
 
 interface WarrantyForm {
   orderItemId: number | '';
@@ -58,6 +66,25 @@ export default function WarrantiesPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [search, setSearch] = useState('');
+  const visibleRows = rows.filter((row) =>
+    matchesSearch(
+      [
+        row.id,
+        row.serial_number,
+        row.status,
+        row.start_date,
+        row.end_date,
+        row.product_name,
+        row.variant_name,
+        orderItems.find((item) => item.id === Number(row.order_item_id))?.label,
+      ],
+      search,
+    ),
+  );
+  const visiblePagination = search
+    ? { ...pagination, page: 1, total: visibleRows.length, totalPages: 1 }
+    : pagination;
 
   async function loadRows(targetPage = page) {
     setLoading(true);
@@ -101,7 +128,10 @@ export default function WarrantiesPage() {
   }, [page]);
 
   useEffect(() => {
-    Promise.all([getWarrantyOrderItems(), getResourceList('/api/product-variants')])
+    Promise.all([
+      getWarrantyOrderItems(),
+      getResourceList('/api/product-variants'),
+    ])
       .then(([itemOptions, variantRows]) => {
         setOrderItems(itemOptions);
         setVariants(variantRows);
@@ -196,14 +226,23 @@ export default function WarrantiesPage() {
         {error && !formOpen && (
           <Message type="error" message={error} onClose={() => setError('')} />
         )}
+        <AdminSearch
+          value={search}
+          onChange={setSearch}
+          placeholder="Tìm bảo hành theo serial, sản phẩm, trạng thái..."
+        />
+        <Pagination
+          pagination={visiblePagination}
+          onPageChange={setPage}
+        />
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           {loading ? (
             <p className="px-5 py-16 text-center text-sm text-slate-500">
               Đang tải dữ liệu...
             </p>
-          ) : rows.length === 0 ? (
+          ) : visibleRows.length === 0 ? (
             <p className="px-5 py-16 text-center text-sm text-slate-500">
-              Chưa có bảo hành.
+              {search ? 'Không tìm thấy bảo hành phù hợp.' : 'Chưa có bảo hành.'}
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -220,7 +259,7 @@ export default function WarrantiesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {rows.map((row) => (
+                  {visibleRows.map((row) => (
                     <tr key={row.id}>
                       <td className="px-5 py-4 font-semibold">
                         {String(row.serial_number || '—')}
@@ -229,10 +268,13 @@ export default function WarrantiesPage() {
                         {orderItemLabel(row.order_item_id)}
                       </td>
                       <td className="whitespace-nowrap px-5 py-4 text-slate-600">
-                        {String(row.start_date || '—')} –{' '}
-                        {String(row.end_date || '—')}
+                        {formatDateTime(row.start_date)} –{' '}
+                        {formatDateTime(row.end_date)}
                       </td>
-                      <td className="px-5 py-4">{String(row.status || '—')}</td>
+                      <td className="px-5 py-4">
+                        {warrantyStatusLabels[String(row.status)] ||
+                          'Trạng thái khác'}
+                      </td>
                       <td className="px-5 py-4 text-right">
                         <button
                           type="button"
@@ -249,7 +291,10 @@ export default function WarrantiesPage() {
             </div>
           )}
         </section>
-        <Pagination pagination={pagination} onPageChange={setPage} />
+        <Pagination
+          pagination={visiblePagination}
+          onPageChange={setPage}
+        />
       </div>
 
       {formOpen && (
