@@ -4,7 +4,7 @@ import type { ResourceDefinition } from '@/interfaces/adminResources';
 const definition: ResourceDefinition = {
   title: 'Sản phẩm yêu thích',
   description: 'Theo dõi và quản lý sản phẩm được người dùng yêu thích.',
-  endpoint: '/api/favorites',
+  endpoint: '/api/admin-fe/favorites',
   allowEdit: false,
   fields: [
     {

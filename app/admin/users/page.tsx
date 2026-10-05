@@ -21,6 +21,7 @@ import StatCard from '@/components/ui/StatCard';
 import ImageUpload from '@/components/ImageUpload';
 import Pagination from '@/components/Pagination';
 import { resolveImageUrl } from '@/api/api';
+import AdminSearch, { matchesSearch } from '@/components/AdminSearch';
 
 import type {
   User,
@@ -68,6 +69,23 @@ export default function UsersPage() {
 
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [search, setSearch] = useState('');
+  const visibleUsers = users.filter((user) =>
+    matchesSearch(
+      [
+        user.id,
+        user.full_name,
+        user.email,
+        user.phone,
+        user.role_name,
+        user.status,
+      ],
+      search,
+    ),
+  );
+  const visiblePagination = search
+    ? { ...pagination, page: 1, total: visibleUsers.length, totalPages: 1 }
+    : pagination;
 
   async function loadUsers(targetPage = page) {
     setLoading(true);
@@ -268,15 +286,27 @@ export default function UsersPage() {
           <Alert message={error} type="error" onClose={() => setError('')} />
         )}
 
+        <AdminSearch
+          value={search}
+          onChange={setSearch}
+          placeholder="Tìm người dùng theo tên, email, điện thoại..."
+        />
+
+        <Pagination
+          pagination={visiblePagination}
+          onPageChange={setPage}
+        />
         {/* Table */}
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           {loading ? (
             <div className="px-5 py-16 text-center text-sm text-slate-500">
               Đang tải danh sách...
             </div>
-          ) : users.length === 0 ? (
+          ) : visibleUsers.length === 0 ? (
             <div className="px-5 py-16 text-center">
-              <p className="font-bold">Chưa có người dùng nào</p>
+              <p className="font-bold">
+                {search ? 'Không tìm thấy người dùng phù hợp' : 'Chưa có người dùng nào'}
+              </p>
 
               <p className="mt-1 text-sm text-slate-500">
                 Tạo người dùng đầu tiên để bắt đầu.
@@ -304,7 +334,7 @@ export default function UsersPage() {
                 </thead>
 
                 <tbody className="divide-y divide-slate-100">
-                  {users.map((user) => (
+                  {visibleUsers.map((user) => (
                     <tr key={user.id} className="hover:bg-slate-50">
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
@@ -368,7 +398,10 @@ export default function UsersPage() {
             </div>
           )}
         </section>
-        <Pagination pagination={pagination} onPageChange={setPage} />
+        <Pagination
+          pagination={visiblePagination}
+          onPageChange={setPage}
+        />
       </main>
 
       {/* Create / Edit Modal */}

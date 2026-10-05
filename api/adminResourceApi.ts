@@ -21,14 +21,18 @@ export interface ResourcePage {
 export async function getResourcePage(
   endpoint: string,
   page: number,
+  search = '',
 ): Promise<ResourcePage> {
-  const result = await api.get<
-    ResourceResponse<ResourceRow[]> | ResourceRow[]
-  >(`${endpoint}?page=${page}&limit=15`);
+  const params = new URLSearchParams({ page: String(page), limit: '15' });
+  if (search.trim()) params.set('q', search.trim());
+  const result = await api.get<ResourceResponse<ResourceRow[]> | ResourceRow[]>(
+    `${endpoint}?${params.toString()}`,
+  );
   const rows = Array.isArray(result) ? result : result.data;
-  const pagination = !Array.isArray(result) && result.pagination
-    ? result.pagination
-    : { page, limit: 15, total: rows.length, totalPages: 1 };
+  const pagination =
+    !Array.isArray(result) && result.pagination
+      ? result.pagination
+      : { page, limit: 15, total: rows.length, totalPages: 1 };
   return { rows, pagination };
 }
 

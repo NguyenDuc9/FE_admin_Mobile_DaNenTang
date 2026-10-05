@@ -10,7 +10,9 @@ import {
 } from '@/api/categoryApi';
 import Modal from '@/components/Modal';
 import ImageUpload from '@/components/ImageUpload';
+import Pagination from '@/components/Pagination';
 import { resolveImageUrl } from '@/api/api';
+import AdminSearch, { matchesSearch } from '@/components/AdminSearch';
 import type {
   Category,
   CategoryRequest,
@@ -24,6 +26,7 @@ const emptyForm: CategoryRequest = {
   imageUrl: '',
   status: 'ACTIVE',
 };
+const pageSize = 15;
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error
@@ -44,12 +47,60 @@ export default function CategoriesPage() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const filteredCategories = categories.filter((category) =>
+    matchesSearch(
+      [
+        category.id,
+        category.name,
+        category.slug,
+        category.description,
+        category.status,
+      ],
+      search,
+    ),
+  );
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredCategories.length / pageSize),
+  );
+  const visibleCategories = filteredCategories.slice(
+    (page - 1) * pageSize,
+    page * pageSize,
+  );
+  const pagination = {
+    page,
+    limit: pageSize,
+    total: filteredCategories.length,
+    totalPages,
+  };
 
   async function loadCategories() {
     setLoading(true);
     setError('');
     try {
-      setCategories(await getCategories());
+      const result = await getCategories();
+      setCategories(result);
+      const filteredCount = result.filter((category) =>
+        matchesSearch(
+          [
+            category.id,
+            category.name,
+            category.slug,
+            category.description,
+            category.status,
+          ],
+          search,
+        ),
+      ).length;
+      setPage(
+        (currentPage) =>
+          Math.min(
+            currentPage,
+            Math.max(1, Math.ceil(filteredCount / pageSize)),
+          ),
+      );
     } catch (loadError) {
       setError(getErrorMessage(loadError));
     } finally {
@@ -196,14 +247,25 @@ export default function CategoriesPage() {
         {error && (
           <Alert message={error} type="error" onClose={() => setError('')} />
         )}
+        <AdminSearch
+          value={search}
+          onChange={(value) => {
+            setSearch(value);
+            setPage(1);
+          }}
+          placeholder="Tìm danh mục theo tên, slug hoặc mô tả..."
+        />
+        <Pagination pagination={pagination} onPageChange={setPage} />
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           {loading ? (
             <div className="px-5 py-16 text-center text-sm text-slate-500">
               Đang tải danh sách...
             </div>
-          ) : categories.length === 0 ? (
+          ) : visibleCategories.length === 0 ? (
             <div className="px-5 py-16 text-center">
-              <p className="font-bold">Chưa có danh mục nào</p>
+              <p className="font-bold">
+                {search ? 'Không tìm thấy danh mục phù hợp' : 'Chưa có danh mục nào'}
+              </p>
               <p className="mt-1 text-sm text-slate-500">
                 Tạo danh mục đầu tiên để bắt đầu.
               </p>
@@ -222,7 +284,7 @@ export default function CategoriesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {categories.map((category) => (
+                  {visibleCategories.map((category) => (
                     <tr key={category.id} className="hover:bg-slate-50">
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
@@ -280,6 +342,7 @@ export default function CategoriesPage() {
             </div>
           )}
         </section>
+        <Pagination pagination={pagination} onPageChange={setPage} />
       </main>
       {formOpen && (
         <Modal

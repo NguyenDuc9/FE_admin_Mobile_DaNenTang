@@ -13,8 +13,6 @@ const navigationItems = [
   { label: 'Danh mục', href: '/admin/categories', icon: '#' },
   { label: 'Thương hiệu', href: '/admin/brands', icon: 'B' },
   { label: 'Sản phẩm', href: '/admin/products', icon: '▣' },
-  { label: 'Biến thể', href: '/admin/product-variants', icon: '◇' },
-  { label: 'Ảnh sản phẩm', href: '/admin/product-images', icon: '▧' },
   { label: 'Đánh giá', href: '/admin/reviews', icon: '★' },
   { label: 'Voucher', href: '/admin/vouchers', icon: '%' },
   { label: 'Đơn hàng', href: '/admin/orders', icon: '□' },
@@ -51,7 +49,10 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             Store<span className="text-cyan-400">Admin</span>
           </Link>
         </div>
-        <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-5" aria-label="Điều hướng chính">
+        <nav
+          className="min-h-0 flex-1 overflow-y-auto px-3 py-5"
+          aria-label="Điều hướng chính"
+        >
           <p className="px-3 pb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
             Workspace
           </p>

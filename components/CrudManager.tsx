@@ -20,6 +20,16 @@ import Modal from '@/components/Modal';
 import ImageUpload from '@/components/ImageUpload';
 import Pagination from '@/components/Pagination';
 import { resolveImageUrl } from '@/api/api';
+import AdminSearch, { matchesSearch } from '@/components/AdminSearch';
+import {
+  formatDateTime,
+  formatGroupedNumber,
+  formatVnd,
+  isCurrencyColumn,
+  isDateColumn,
+  isNumericColumn,
+} from '@/utils/displayFormat';
+import { getAdminValueLabel } from '@/utils/adminValueLabels';
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error
@@ -48,10 +58,19 @@ function formValue(field: ResourceField, row: ResourceRow) {
   return localDate.toISOString().slice(0, 16);
 }
 
-function displayValue(value: unknown) {
-  if (value === null || value === undefined || value === '') return '—';
-  if (typeof value === 'boolean') return value ? 'Có' : 'Không';
-  return String(value);
+function displayValue(name: string, value: unknown) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === '' ||
+    typeof value === 'boolean'
+  ) {
+    return getAdminValueLabel(name, value);
+  }
+  if (isDateColumn(name)) return formatDateTime(value);
+  if (isCurrencyColumn(name)) return formatVnd(String(value));
+  if (isNumericColumn(name, value)) return formatGroupedNumber(String(value));
+  return getAdminValueLabel(name, value);
 }
 
 export default function CrudManager({
@@ -89,17 +108,102 @@ export default function CrudManager({
   const [uploadingImage, setUploadingImage] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedSearch(search.trim());
+      setPage(1);
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [search]);
+
+  const usesServerSearch = definition.endpoint.startsWith('/api/admin-fe/');
+  const filteredRows = usesServerSearch
+    ? rows
+    : rows.filter((row) =>
+        matchesSearch(
+          [
+            ...Object.values(row),
+            ...definition.fields.flatMap((field) => {
+              const value = row[field.source || field.name];
+              const option = relationOptions[field.name]?.find(
+                (item) => item.value === String(value),
+              );
+              return option ? [option.label] : [];
+            }),
+          ],
+          search,
+        ),
+      );
+  const totalLocalPages = Math.max(
+    1,
+    Math.ceil(filteredRows.length / pagination.limit),
+  );
+  const visibleRows = usesServerSearch
+    ? rows
+    : filteredRows.slice(
+        (page - 1) * pagination.limit,
+        page * pagination.limit,
+      );
+  const visiblePagination = usesServerSearch
+    ? pagination
+    : {
+        ...pagination,
+        page,
+        total: filteredRows.length,
+        totalPages: totalLocalPages,
+      };
 
   async function loadRows() {
     setError('');
     try {
-      const result = await getResourcePage(definition.endpoint, page);
-      if (page > 1 && page > result.pagination.totalPages) {
-        setPage(result.pagination.totalPages);
-        return;
+      if (usesServerSearch) {
+        const result = await getResourcePage(
+          definition.endpoint,
+          page,
+          debouncedSearch,
+        );
+        if (page > 1 && page > result.pagination.totalPages) {
+          setPage(result.pagination.totalPages);
+          return;
+        }
+        setRows(result.rows);
+        setPagination(result.pagination);
+      } else {
+        const result = await getResourceList(definition.endpoint);
+        setRows(result);
+        const matchingRows = result.filter((row) =>
+          matchesSearch(
+            [
+              ...Object.values(row),
+              ...definition.fields.flatMap((field) => {
+                const value = row[field.source || field.name];
+                const option = relationOptions[field.name]?.find(
+                  (item) => item.value === String(value),
+                );
+                return option ? [option.label] : [];
+              }),
+            ],
+            search,
+          ),
+        );
+        const nextPage = Math.min(
+          page,
+          Math.max(1, Math.ceil(matchingRows.length / pagination.limit)),
+        );
+        setPage(nextPage);
+        setPagination({
+          page: nextPage,
+          limit: pagination.limit,
+          total: matchingRows.length,
+          totalPages: Math.max(
+            1,
+            Math.ceil(matchingRows.length / pagination.limit),
+          ),
+        });
       }
-      setRows(result.rows);
-      setPagination(result.pagination);
     } catch (loadError) {
       setError(getErrorMessage(loadError));
     } finally {
@@ -108,8 +212,34 @@ export default function CrudManager({
   }
 
   useEffect(() => {
+    if (usesServerSearch) return;
     let active = true;
-    getResourcePage(definition.endpoint, page)
+    getResourceList(definition.endpoint)
+      .then((result) => {
+        if (!active) return;
+        setRows(result);
+        setPagination({
+          page: 1,
+          limit: 15,
+          total: result.length,
+          totalPages: Math.max(1, Math.ceil(result.length / 15)),
+        });
+      })
+      .catch((loadError: unknown) => {
+        if (active) setError(getErrorMessage(loadError));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [definition.endpoint, usesServerSearch]);
+
+  useEffect(() => {
+    if (!usesServerSearch) return;
+    let active = true;
+    getResourcePage(definition.endpoint, page, debouncedSearch)
       .then((result) => {
         if (!active) return;
         if (page > 1 && page > result.pagination.totalPages) {
@@ -128,7 +258,7 @@ export default function CrudManager({
     return () => {
       active = false;
     };
-  }, [definition.endpoint, page]);
+  }, [definition.endpoint, page, debouncedSearch, usesServerSearch]);
 
   useEffect(() => {
     const fields = definition.fields.filter((field) => field.optionsEndpoint);
@@ -282,7 +412,9 @@ export default function CrudManager({
       const nextStatus =
         row[definition.statusField] === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
       await patchResourceStatus(definition.endpoint, row.id, nextStatus);
-      setNotice(`Đã cập nhật trạng thái thành ${nextStatus}.`);
+      setNotice(
+        `Đã cập nhật trạng thái thành ${getAdminValueLabel('status', nextStatus)}.`,
+      );
       await loadRows();
     } catch (statusError) {
       setError(getErrorMessage(statusError));
@@ -311,8 +443,20 @@ export default function CrudManager({
           </button>
         </div>
 
-        <div className="mb-4 flex items-center justify-between text-sm text-slate-500">
-          <span>{pagination.total} bản ghi</span>
+        <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+          <AdminSearch
+            value={search}
+            onChange={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+            placeholder={`Tìm ${definition.title.toLocaleLowerCase('vi')}...`}
+          />
+          <span className="-mt-3 text-sm text-slate-500 sm:mt-0">
+            {visiblePagination.total} bản ghi
+          </span>
+        </div>
+        <div className="mb-4 flex justify-end text-sm text-slate-500">
           <button
             type="button"
             onClick={() => void loadRows()}
@@ -333,14 +477,18 @@ export default function CrudManager({
           <Message type="error" message={error} onClose={() => setError('')} />
         )}
 
+        <Pagination
+          pagination={visiblePagination}
+          onPageChange={setPage}
+        />
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           {loading ? (
             <div className="px-5 py-16 text-center text-sm text-slate-500">
               Đang tải dữ liệu...
             </div>
-          ) : rows.length === 0 ? (
+          ) : visibleRows.length === 0 ? (
             <div className="px-5 py-16 text-center text-sm text-slate-500">
-              Chưa có dữ liệu.
+              {search ? 'Không tìm thấy dữ liệu phù hợp.' : 'Chưa có dữ liệu.'}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -348,7 +496,17 @@ export default function CrudManager({
                 <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                   <tr>
                     {definition.columns.map((column) => (
-                      <th key={column.name} className="px-5 py-3 font-semibold">
+                      <th
+                        key={column.name}
+                        className={`px-5 py-3 font-semibold ${
+                          isCurrencyColumn(column.name) ||
+                          rows.some((row) =>
+                            isNumericColumn(column.name, row[column.name]),
+                          )
+                            ? 'text-right'
+                            : ''
+                        }`}
+                      >
                         {column.label}
                       </th>
                     ))}
@@ -358,12 +516,17 @@ export default function CrudManager({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {rows.map((row) => (
+                  {visibleRows.map((row) => (
                     <tr key={row.id} className="hover:bg-slate-50">
                       {definition.columns.map((column) => (
                         <td
                           key={column.name}
-                          className="max-w-xs truncate px-5 py-4 text-slate-700"
+                          className={`max-w-xs truncate px-5 py-4 text-slate-700 ${
+                            isCurrencyColumn(column.name) ||
+                            isNumericColumn(column.name, row[column.name])
+                              ? 'text-right tabular-nums'
+                              : ''
+                          }`}
                         >
                           {(() => {
                             const field = definition.fields.find(
@@ -390,8 +553,17 @@ export default function CrudManager({
                                     item.value === String(row[column.name]),
                                 )
                               : undefined;
+                            if (
+                              column.name === 'discount_value' &&
+                              row.discount_type === 'PERCENT'
+                            ) {
+                              return `${formatGroupedNumber(
+                                String(row[column.name] ?? ''),
+                              )}%`;
+                            }
                             return (
-                              option?.label || displayValue(row[column.name])
+                              option?.label ||
+                              displayValue(column.name, row[column.name])
                             );
                           })()}
                         </td>
@@ -444,7 +616,10 @@ export default function CrudManager({
             </div>
           )}
         </section>
-        <Pagination pagination={pagination} onPageChange={setPage} />
+        <Pagination
+          pagination={visiblePagination}
+          onPageChange={setPage}
+        />
       </div>
 
       {formOpen && (

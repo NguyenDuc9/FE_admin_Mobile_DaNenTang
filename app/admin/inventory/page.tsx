@@ -6,6 +6,8 @@ import { getResourceList, getResourcePage } from '@/api/adminResourceApi';
 import type { ResourceRow } from '@/interfaces/adminResources';
 import Modal from '@/components/Modal';
 import Pagination from '@/components/Pagination';
+import AdminSearch, { matchesSearch } from '@/components/AdminSearch';
+import { formatDateTime, formatGroupedNumber } from '@/utils/displayFormat';
 
 function errorMessage(error: unknown) {
   return error instanceof Error
@@ -35,6 +37,29 @@ export default function InventoryPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [search, setSearch] = useState('');
+  const visibleTransactions = transactions.filter((transaction) =>
+    matchesSearch(
+      [
+        transaction.id,
+        transaction.variant_name,
+        transaction.sku,
+        transaction.type,
+        transaction.quantity,
+        transaction.note,
+        transaction.created_at,
+      ],
+      search,
+    ),
+  );
+  const visiblePagination = search
+    ? {
+        ...pagination,
+        page: 1,
+        total: visibleTransactions.length,
+        totalPages: 1,
+      }
+    : pagination;
 
   async function loadData(targetPage = page) {
     setLoading(true);
@@ -44,7 +69,10 @@ export default function InventoryPage() {
         getResourcePage('/api/inventory/transactions', targetPage),
         getResourceList('/api/product-variants'),
       ]);
-      if (targetPage > 1 && targetPage > transactionPage.pagination.totalPages) {
+      if (
+        targetPage > 1 &&
+        targetPage > transactionPage.pagination.totalPages
+      ) {
         setPage(transactionPage.pagination.totalPages);
         return;
       }
@@ -137,14 +165,24 @@ export default function InventoryPage() {
           <Message type="error" message={error} onClose={() => setError('')} />
         )}
 
+        <AdminSearch
+          value={search}
+          onChange={setSearch}
+          placeholder="Tìm giao dịch theo SKU, biến thể, loại..."
+        />
+
+        <Pagination
+          pagination={visiblePagination}
+          onPageChange={setPage}
+        />
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           {loading ? (
             <p className="px-5 py-16 text-center text-sm text-slate-500">
               Đang tải giao dịch...
             </p>
-          ) : transactions.length === 0 ? (
+          ) : visibleTransactions.length === 0 ? (
             <p className="px-5 py-16 text-center text-sm text-slate-500">
-              Chưa có giao dịch kho.
+              {search ? 'Không tìm thấy giao dịch phù hợp.' : 'Chưa có giao dịch kho.'}
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -154,15 +192,15 @@ export default function InventoryPage() {
                     <th className="px-5 py-3 font-semibold">Thời gian</th>
                     <th className="px-5 py-3 font-semibold">Biến thể</th>
                     <th className="px-5 py-3 font-semibold">Loại</th>
-                    <th className="px-5 py-3 font-semibold">Thay đổi</th>
+                    <th className="px-5 py-3 text-right font-semibold">Thay đổi</th>
                     <th className="px-5 py-3 font-semibold">Ghi chú</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {transactions.map((transaction) => (
+                  {visibleTransactions.map((transaction) => (
                     <tr key={transaction.id}>
                       <td className="whitespace-nowrap px-5 py-4 text-slate-600">
-                        {String(transaction.created_at || '—')}
+                        {formatDateTime(transaction.created_at)}
                       </td>
                       <td className="px-5 py-4">
                         {String(
@@ -177,8 +215,12 @@ export default function InventoryPage() {
                       <td className="px-5 py-4">
                         {String(transaction.type || '—')}
                       </td>
-                      <td className="px-5 py-4">
-                        {String(transaction.quantity ?? '—')}
+                      <td className="px-5 py-4 text-right tabular-nums">
+                        {formatGroupedNumber(
+                          transaction.quantity === null
+                            ? null
+                            : String(transaction.quantity),
+                        )}
                       </td>
                       <td className="px-5 py-4 text-slate-600">
                         {String(transaction.note || '—')}
@@ -190,7 +232,10 @@ export default function InventoryPage() {
             </div>
           )}
         </section>
-        <Pagination pagination={pagination} onPageChange={setPage} />
+        <Pagination
+          pagination={visiblePagination}
+          onPageChange={setPage}
+        />
       </div>
 
       {formOpen && (
