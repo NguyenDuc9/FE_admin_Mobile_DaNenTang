@@ -44,6 +44,13 @@ export interface ResourceDefinition {
   title: string;
   description: string;
   endpoint: string;
+  filters?: {
+    name: string;
+    label: string;
+    allLabel: string;
+    options: { value: string; label: string }[];
+  }[];
+  clientSideFilters?: boolean;
   fields: ResourceField[];
   columns: ResourceColumn[];
   allowEdit?: boolean;

@@ -100,10 +100,12 @@ export default function ProductsPage() {
   const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
   const filteredProducts = products.filter((product) =>
     matchesProductSearch(product, search) &&
     (categoryFilter === '' ||
-      product.category_id === Number(categoryFilter)),
+      product.category_id === Number(categoryFilter)) &&
+    (brandFilter === '' || product.brand_id === Number(brandFilter)),
   );
   const totalPages = Math.max(1, Math.ceil(filteredProducts.length / pageSize));
   const visibleProducts = filteredProducts.slice(
@@ -126,7 +128,8 @@ export default function ProductsPage() {
       const filteredCount = result.filter((product) =>
         matchesProductSearch(product, search) &&
         (categoryFilter === '' ||
-          product.category_id === Number(categoryFilter)),
+          product.category_id === Number(categoryFilter)) &&
+        (brandFilter === '' || product.brand_id === Number(brandFilter)),
       ).length;
       setPage(
         Math.min(
@@ -342,6 +345,24 @@ export default function ProductsPage() {
               ))}
             </select>
           </label>
+          <label className="mb-4 block">
+            <span className="sr-only">Lọc sản phẩm theo thương hiệu</span>
+            <select
+              value={brandFilter}
+              onChange={(event) => {
+                setBrandFilter(event.target.value);
+                setPage(1);
+              }}
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-cyan-700 focus:ring-2 focus:ring-cyan-100 sm:min-w-56"
+            >
+              <option value="">Tất cả thương hiệu</option>
+              {brands.map((brand) => (
+                <option key={brand.id} value={brand.id}>
+                  {String(brand.name || `Thương hiệu ${brand.id}`)}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         <Pagination
           pagination={visiblePagination}
@@ -355,7 +376,7 @@ export default function ProductsPage() {
           ) : visibleProducts.length === 0 ? (
             <div className="px-5 py-16 text-center">
               <p className="font-bold">
-                {search || categoryFilter
+                {search || categoryFilter || brandFilter
                   ? 'Không tìm thấy sản phẩm phù hợp'
                   : 'Chưa có sản phẩm nào'}
               </p>
@@ -421,35 +442,39 @@ export default function ProductsPage() {
                             'Trạng thái khác'}
                         </span>
                       </td>
-                      <td className="px-5 py-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setVariantsProduct(product)}
-                          className="mr-3 font-semibold text-indigo-700 hover:text-indigo-900"
-                        >
-                          Biến thể
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setImagesProduct(product)}
-                          className="mr-3 font-semibold text-indigo-700 hover:text-indigo-900"
-                        >
-                          Ảnh sản phẩm
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openEdit(product)}
-                          className="mr-3 font-semibold text-cyan-700 hover:text-cyan-900"
-                        >
-                          Sửa
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDeletingProduct(product)}
-                          className="font-semibold text-rose-600 hover:text-rose-800"
-                        >
-                          Xóa
-                        </button>
+                      <td className="w-36 px-3 py-4">
+                        <div className="ml-auto grid max-w-32 grid-cols-2 gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setVariantsProduct(product)}
+                            className="rounded-md bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                          >
+                            Biến thể
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setImagesProduct(product)}
+                            aria-label="Quản lý ảnh sản phẩm"
+                            title="Ảnh sản phẩm"
+                            className="rounded-md bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                          >
+                            Ảnh
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEdit(product)}
+                            className="rounded-md bg-cyan-50 px-2 py-1 text-xs font-semibold text-cyan-700 hover:bg-cyan-100"
+                          >
+                            Sửa
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeletingProduct(product)}
+                            className="rounded-md bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-100"
+                          >
+                            Xóa
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

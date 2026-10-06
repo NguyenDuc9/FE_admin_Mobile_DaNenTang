@@ -5,6 +5,18 @@ const definition: ResourceDefinition = {
   title: 'Đánh giá',
   description: 'Theo dõi và chỉnh sửa đánh giá sản phẩm.',
   endpoint: '/api/admin-fe/reviews',
+  clientSideFilters: true,
+  filters: [
+    {
+      name: 'rating',
+      label: 'Lọc theo số sao',
+      allLabel: 'Tất cả số sao',
+      options: [1, 2, 3, 4, 5].map((rating) => ({
+        value: String(rating),
+        label: `${rating} sao`,
+      })),
+    },
+  ],
   fields: [
     {
       name: 'user_id',

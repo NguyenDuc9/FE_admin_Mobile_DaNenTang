@@ -78,6 +78,16 @@ function getErrorMessage(error: unknown) {
     : 'Đã có lỗi xảy ra. Vui lòng thử lại.';
 }
 
+function getDiscountPercentage(
+  price: number | null,
+  compareAtPrice: number | null,
+) {
+  if (price === null || compareAtPrice === null || compareAtPrice <= price) {
+    return null;
+  }
+  return Math.round(((compareAtPrice - price) / compareAtPrice) * 100);
+}
+
 export default function ProductVariantsManager({
   product,
   onClose,
@@ -337,47 +347,108 @@ export default function ProductVariantsManager({
                   Sản phẩm chưa có biến thể.
                 </p>
               ) : (
-                <div className="space-y-3">
+                <div className="grid gap-4 md:grid-cols-2">
                   {visibleVariants.map((variant) => (
                     <article
                       key={variant.id}
-                      className="rounded-xl border border-slate-200 p-4"
+                      className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-cyan-200 hover:shadow-md"
                     >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <p className="font-bold">{variant.variant_name}</p>
-                          <p className="mt-1 text-xs text-slate-500">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="truncate font-bold text-slate-900">
+                            {variant.variant_name}
+                          </h3>
+                          <p className="mt-1 truncate text-xs text-slate-500">
                             SKU: {variant.sku}
                           </p>
                         </div>
-                        <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${
-                          variant.status === 'ACTIVE'
-                            ? 'bg-emerald-50 text-emerald-700'
-                            : 'bg-slate-100 text-slate-600'
-                        }`}>
-                          {variant.status === 'ACTIVE' ? 'Đang hoạt động' : 'Ngừng hoạt động'}
+                        <span
+                          className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${
+                            variant.status === 'ACTIVE'
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {variant.status === 'ACTIVE'
+                            ? 'Đang hoạt động'
+                            : 'Ngừng hoạt động'}
                         </span>
                       </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-slate-600">
-                        <span>Giá: {variant.price === null ? '—' : formatVnd(Number(variant.price))}</span>
-                        <span>Tồn kho: {formatGroupedNumber(variant.stock_quantity)}</span>
-                        <span>CPU: {variant.cpu || '—'}</span>
-                        <span>RAM: {variant.ram || '—'}</span>
-                        <span>Lưu trữ: {variant.storage || '—'}</span>
-                        <span>Màu: {variant.color || '—'}</span>
+
+                      <div className="mt-4 rounded-xl bg-slate-50 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Giá bán
+                        </p>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="text-xl font-black text-cyan-800">
+                            {variant.price === null
+                              ? 'Chưa thiết lập'
+                              : formatVnd(variant.price)}
+                          </span>
+                          {variant.price !== null &&
+                          variant.compare_at_price !== null &&
+                          variant.compare_at_price > variant.price ? (
+                            <>
+                              <span className="text-sm text-slate-400 line-through">
+                                {formatVnd(variant.compare_at_price)}
+                              </span>
+                              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-700">
+                                -{getDiscountPercentage(
+                                  variant.price,
+                                  variant.compare_at_price,
+                                )}%
+                              </span>
+                            </>
+                          ) : null}
+                        </div>
                       </div>
-                      <div className="mt-3 flex justify-end gap-4 border-t border-slate-100 pt-3">
+
+                      <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                        <div className="rounded-lg border border-slate-100 px-3 py-2">
+                          <p className="text-xs text-slate-500">Tồn kho</p>
+                          <p className="mt-0.5 font-bold text-slate-800">
+                            {formatGroupedNumber(variant.stock_quantity)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-slate-100 px-3 py-2">
+                          <p className="text-xs text-slate-500">Cấu hình</p>
+                          <p className="mt-0.5 truncate font-medium text-slate-800">
+                            {[variant.cpu, variant.ram, variant.storage]
+                              .filter(Boolean)
+                              .join(' · ') || 'Chưa cập nhật'}
+                          </p>
+                        </div>
+                        <div className="col-span-2 flex flex-wrap gap-2">
+                          {variant.gpu && (
+                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
+                              GPU: {variant.gpu}
+                            </span>
+                          )}
+                          {variant.color && (
+                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
+                              Màu: {variant.color}
+                            </span>
+                          )}
+                          {variant.screen_size && (
+                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
+                              Màn hình: {variant.screen_size}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-auto flex justify-end gap-2 border-t border-slate-100 pt-3">
                         <button
                           type="button"
                           onClick={() => openEdit(variant)}
-                          className="text-sm font-semibold text-cyan-800"
+                          className="rounded-lg px-3 py-1.5 text-sm font-semibold text-cyan-800 hover:bg-cyan-50"
                         >
                           Sửa
                         </button>
                         <button
                           type="button"
                           onClick={() => setDeletingVariant(variant)}
-                          className="text-sm font-semibold text-rose-700"
+                          className="rounded-lg px-3 py-1.5 text-sm font-semibold text-rose-700 hover:bg-rose-50"
                         >
                           Xóa
                         </button>

@@ -22,9 +22,13 @@ export async function getResourcePage(
   endpoint: string,
   page: number,
   search = '',
+  filters: Record<string, string> = {},
 ): Promise<ResourcePage> {
   const params = new URLSearchParams({ page: String(page), limit: '15' });
   if (search.trim()) params.set('q', search.trim());
+  for (const [key, value] of Object.entries(filters)) {
+    if (value) params.set(key, value);
+  }
   const result = await api.get<ResourceResponse<ResourceRow[]> | ResourceRow[]>(
     `${endpoint}?${params.toString()}`,
   );

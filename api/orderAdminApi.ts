@@ -2,7 +2,10 @@ import api from './api';
 
 export interface OrderDetailItem {
   id: number;
+  product_id?: number | null;
   product_name: string;
+  thumbnail_url?: string | null;
+  product_image_url?: string | null;
   variant_name?: string | null;
   sku?: string | null;
   unit_price: number | string;

@@ -110,6 +110,9 @@ export default function CrudManager({
   const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [filterValues, setFilterValues] = useState<Record<string, string>>(
+    {},
+  );
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -119,7 +122,9 @@ export default function CrudManager({
     return () => window.clearTimeout(timeout);
   }, [search]);
 
-  const usesServerSearch = definition.endpoint.startsWith('/api/admin-fe/');
+  const usesServerSearch =
+    definition.endpoint.startsWith('/api/admin-fe/') &&
+    !definition.clientSideFilters;
   const filteredRows = usesServerSearch
     ? rows
     : rows.filter((row) =>
@@ -135,6 +140,11 @@ export default function CrudManager({
             }),
           ],
           search,
+        ) &&
+        (definition.filters || []).every(
+          (filter) =>
+            !filterValues[filter.name] ||
+            String(row[filter.name]) === filterValues[filter.name],
         ),
       );
   const totalLocalPages = Math.max(
@@ -164,6 +174,7 @@ export default function CrudManager({
           definition.endpoint,
           page,
           debouncedSearch,
+          filterValues,
         );
         if (page > 1 && page > result.pagination.totalPages) {
           setPage(result.pagination.totalPages);
@@ -187,6 +198,11 @@ export default function CrudManager({
               }),
             ],
             search,
+          ) &&
+          (definition.filters || []).every(
+            (filter) =>
+              !filterValues[filter.name] ||
+              String(row[filter.name]) === filterValues[filter.name],
           ),
         );
         const nextPage = Math.min(
@@ -239,7 +255,7 @@ export default function CrudManager({
   useEffect(() => {
     if (!usesServerSearch) return;
     let active = true;
-    getResourcePage(definition.endpoint, page, debouncedSearch)
+    getResourcePage(definition.endpoint, page, debouncedSearch, filterValues)
       .then((result) => {
         if (!active) return;
         if (page > 1 && page > result.pagination.totalPages) {
@@ -258,7 +274,13 @@ export default function CrudManager({
     return () => {
       active = false;
     };
-  }, [definition.endpoint, page, debouncedSearch, usesServerSearch]);
+  }, [
+    definition.endpoint,
+    page,
+    debouncedSearch,
+    filterValues,
+    usesServerSearch,
+  ]);
 
   useEffect(() => {
     const fields = definition.fields.filter((field) => field.optionsEndpoint);
@@ -443,7 +465,7 @@ export default function CrudManager({
           </button>
         </div>
 
-        <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+        <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
           <AdminSearch
             value={search}
             onChange={(value) => {
@@ -452,6 +474,29 @@ export default function CrudManager({
             }}
             placeholder={`Tìm ${definition.title.toLocaleLowerCase('vi')}...`}
           />
+          {definition.filters?.map((filter) => (
+            <label key={filter.name} className="mb-4 block">
+              <span className="sr-only">{filter.label}</span>
+              <select
+                value={filterValues[filter.name] || ''}
+                onChange={(event) => {
+                  setFilterValues((current) => ({
+                    ...current,
+                    [filter.name]: event.target.value,
+                  }));
+                  setPage(1);
+                }}
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-cyan-700 focus:ring-2 focus:ring-cyan-100 sm:min-w-48"
+              >
+                <option value="">{filter.allLabel}</option>
+                {filter.options.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
           <span className="-mt-3 text-sm text-slate-500 sm:mt-0">
             {visiblePagination.total} bản ghi
           </span>

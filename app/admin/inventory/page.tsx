@@ -2,12 +2,17 @@
 
 import { useEffect, useState } from 'react';
 import { changeInventory } from '@/api/inventoryAdminApi';
-import { getResourceList, getResourcePage } from '@/api/adminResourceApi';
+import type { Product } from '@/interfaces/product';
+import { getProducts } from '@/api/productApi';
+import { getResourceList } from '@/api/adminResourceApi';
 import type { ResourceRow } from '@/interfaces/adminResources';
 import Modal from '@/components/Modal';
 import Pagination from '@/components/Pagination';
 import AdminSearch, { matchesSearch } from '@/components/AdminSearch';
+import ProductVariantsManager from '@/components/ProductVariantsManager';
 import { formatDateTime, formatGroupedNumber } from '@/utils/displayFormat';
+
+const pageSize = 15;
 
 function errorMessage(error: unknown) {
   return error instanceof Error
@@ -18,6 +23,9 @@ function errorMessage(error: unknown) {
 export default function InventoryPage() {
   const [transactions, setTransactions] = useState<ResourceRow[]>([]);
   const [variants, setVariants] = useState<ResourceRow[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [variantProductId, setVariantProductId] = useState('');
   const [variantId, setVariantId] = useState('');
   const [type, setType] = useState<'IMPORT' | 'ADJUSTMENT'>('IMPORT');
   const [quantity, setQuantity] = useState(1);
@@ -28,17 +36,11 @@ export default function InventoryPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({
-    page: 1,
-    limit: 15,
-    total: 0,
-    totalPages: 1,
-  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
-  const visibleTransactions = transactions.filter((transaction) =>
+  const filteredTransactions = transactions.filter((transaction) =>
     matchesSearch(
       [
         transaction.id,
@@ -52,33 +54,40 @@ export default function InventoryPage() {
       search,
     ),
   );
-  const visiblePagination = search
-    ? {
-        ...pagination,
-        page: 1,
-        total: visibleTransactions.length,
-        totalPages: 1,
-      }
-    : pagination;
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredTransactions.length / pageSize),
+  );
+  const currentPage = Math.min(page, totalPages);
+  const visibleTransactions = filteredTransactions.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
+  const visiblePagination = {
+    page: currentPage,
+    limit: pageSize,
+    total: filteredTransactions.length,
+    totalPages,
+  };
 
-  async function loadData(targetPage = page) {
+  async function loadData() {
     setLoading(true);
     setError('');
     try {
-      const [transactionPage, variantRows] = await Promise.all([
-        getResourcePage('/api/inventory/transactions', targetPage),
+      const [transactionRows, variantRows, productRows] = await Promise.all([
+        getResourceList('/api/inventory/transactions'),
         getResourceList('/api/product-variants'),
+        getProducts(),
       ]);
-      if (
-        targetPage > 1 &&
-        targetPage > transactionPage.pagination.totalPages
-      ) {
-        setPage(transactionPage.pagination.totalPages);
-        return;
-      }
-      setTransactions(transactionPage.rows);
-      setPagination(transactionPage.pagination);
+      setTransactions(transactionRows);
       setVariants(variantRows);
+      setProducts(productRows);
+      setPage((current) =>
+        Math.min(
+          current,
+          Math.max(1, Math.ceil(transactionRows.length / pageSize)),
+        ),
+      );
     } catch (loadError) {
       setError(errorMessage(loadError));
     } finally {
@@ -89,18 +98,15 @@ export default function InventoryPage() {
   useEffect(() => {
     let active = true;
     Promise.all([
-      getResourcePage('/api/inventory/transactions', page),
+      getResourceList('/api/inventory/transactions'),
       getResourceList('/api/product-variants'),
+      getProducts(),
     ])
-      .then(([transactionPage, variantRows]) => {
+      .then(([transactionRows, variantRows, productRows]) => {
         if (!active) return;
-        if (page > 1 && page > transactionPage.pagination.totalPages) {
-          setPage(transactionPage.pagination.totalPages);
-          return;
-        }
-        setTransactions(transactionPage.rows);
-        setPagination(transactionPage.pagination);
+        setTransactions(transactionRows);
         setVariants(variantRows);
+        setProducts(productRows);
       })
       .catch((loadError: unknown) => {
         if (active) setError(errorMessage(loadError));
@@ -111,7 +117,7 @@ export default function InventoryPage() {
     return () => {
       active = false;
     };
-  }, [page]);
+  }, []);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -159,6 +165,36 @@ export default function InventoryPage() {
             + Nhập / điều chỉnh
           </button>
         </div>
+        <div className="mb-5 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-end">
+          <label className="block flex-1 text-sm font-semibold">
+            Chọn sản phẩm để quản lý biến thể và tồn kho
+            <select
+              value={variantProductId}
+              onChange={(event) => setVariantProductId(event.target.value)}
+              className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal"
+            >
+              <option value="">Chọn sản phẩm</option>
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            disabled={!variantProductId}
+            onClick={() => {
+              const product = products.find(
+                (item) => item.id === Number(variantProductId),
+              );
+              if (product) setSelectedProduct(product);
+            }}
+            className="rounded-lg border border-cyan-700 px-4 py-2.5 text-sm font-semibold text-cyan-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Quản lý biến thể
+          </button>
+        </div>
 
         {notice && <Message message={notice} onClose={() => setNotice('')} />}
         {error && !formOpen && (
@@ -167,9 +203,16 @@ export default function InventoryPage() {
 
         <AdminSearch
           value={search}
-          onChange={setSearch}
+          onChange={(value) => {
+            setSearch(value);
+            setPage(1);
+          }}
           placeholder="Tìm giao dịch theo SKU, biến thể, loại..."
         />
+        <p className="-mt-2 mb-4 text-xs text-slate-500">
+          Lịch sử giao dịch được giữ nguyên để đối soát. Nếu cần sửa số tồn,
+          hãy tạo giao dịch điều chỉnh mới.
+        </p>
 
         <Pagination
           pagination={visiblePagination}
@@ -182,7 +225,9 @@ export default function InventoryPage() {
             </p>
           ) : visibleTransactions.length === 0 ? (
             <p className="px-5 py-16 text-center text-sm text-slate-500">
-              {search ? 'Không tìm thấy giao dịch phù hợp.' : 'Chưa có giao dịch kho.'}
+              {search
+                ? 'Không tìm thấy giao dịch phù hợp.'
+                : 'Chưa có giao dịch kho.'}
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -333,6 +378,16 @@ export default function InventoryPage() {
             </div>
           </form>
         </Modal>
+      )}
+      {selectedProduct && (
+        <ProductVariantsManager
+          key={selectedProduct.id}
+          product={selectedProduct}
+          onClose={() => {
+            setSelectedProduct(null);
+            void loadData();
+          }}
+        />
       )}
     </main>
   );
