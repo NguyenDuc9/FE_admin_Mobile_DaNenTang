@@ -6,7 +6,7 @@ import type { FormEvent } from 'react';
 import {
   createUser,
   deleteUser,
-  getUsersPage,
+  getUsers,
   updateUser,
 } from '@/api/userApi';
 import { getResourceList } from '@/api/adminResourceApi';
@@ -41,6 +41,8 @@ const emptyForm: UserRequest = {
   status: 'ACTIVE',
 };
 
+const pageSize = 15;
+
 function getErrorMessage(error: unknown) {
   return error instanceof Error
     ? error.message
@@ -58,19 +60,14 @@ export default function UsersPage() {
 
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({
-    page: 1,
-    limit: 15,
-    total: 0,
-    totalPages: 1,
-  });
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
 
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
-  const visibleUsers = users.filter((user) =>
+  const [statusFilter, setStatusFilter] = useState('');
+  const filteredUsers = users.filter((user) =>
     matchesSearch(
       [
         user.id,
@@ -81,24 +78,28 @@ export default function UsersPage() {
         user.status,
       ],
       search,
-    ),
+    ) &&
+    (statusFilter === '' || user.status === statusFilter),
   );
-  const visiblePagination = search
-    ? { ...pagination, page: 1, total: visibleUsers.length, totalPages: 1 }
-    : pagination;
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const visibleUsers = filteredUsers.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
+  const visiblePagination = {
+    page: currentPage,
+    limit: pageSize,
+    total: filteredUsers.length,
+    totalPages,
+  };
 
-  async function loadUsers(targetPage = page) {
+  async function loadUsers() {
     setLoading(true);
     setError('');
 
     try {
-      const result = await getUsersPage(targetPage);
-      if (targetPage > 1 && targetPage > result.pagination.totalPages) {
-        setPage(result.pagination.totalPages);
-        return;
-      }
-      setUsers(result.users);
-      setPagination(result.pagination);
+      setUsers(await getUsers());
     } catch (loadError) {
       setError(getErrorMessage(loadError));
     } finally {
@@ -108,15 +109,9 @@ export default function UsersPage() {
 
   useEffect(() => {
     let active = true;
-    getUsersPage(page)
+    getUsers()
       .then((result) => {
-        if (!active) return;
-        if (page > 1 && page > result.pagination.totalPages) {
-          setPage(result.pagination.totalPages);
-          return;
-        }
-        setUsers(result.users);
-        setPagination(result.pagination);
+        if (active) setUsers(result);
       })
       .catch((loadError: unknown) => {
         if (active) setError(getErrorMessage(loadError));
@@ -127,7 +122,7 @@ export default function UsersPage() {
     return () => {
       active = false;
     };
-  }, [page]);
+  }, []);
 
   useEffect(() => {
     getResourceList('/api/roles')
@@ -223,7 +218,7 @@ export default function UsersPage() {
       closeForm();
       const targetPage = editingId === null ? 1 : page;
       if (targetPage !== page) setPage(targetPage);
-      await loadUsers(targetPage);
+      await loadUsers();
     } catch (saveError) {
       setError(getErrorMessage(saveError));
     } finally {
@@ -270,7 +265,7 @@ export default function UsersPage() {
 
         {/* Statistics */}
         <div className="mb-6 grid gap-4 sm:grid-cols-4">
-          <StatCard label="Tổng người dùng" value={pagination.total} />
+          <StatCard label="Tổng người dùng" value={users.length} />
         </div>
 
         {/* Alerts */}
@@ -286,11 +281,32 @@ export default function UsersPage() {
           <Alert message={error} type="error" onClose={() => setError('')} />
         )}
 
-        <AdminSearch
-          value={search}
-          onChange={setSearch}
-          placeholder="Tìm người dùng theo tên, email, điện thoại..."
-        />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+          <AdminSearch
+            value={search}
+            onChange={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+            placeholder="Tìm người dùng theo tên, email, điện thoại..."
+          />
+          <label className="mb-4 block">
+            <span className="sr-only">Lọc theo trạng thái hoạt động</span>
+            <select
+              value={statusFilter}
+              onChange={(event) => {
+                setStatusFilter(event.target.value);
+                setPage(1);
+              }}
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-cyan-700 focus:ring-2 focus:ring-cyan-100 sm:min-w-52"
+            >
+              <option value="">Tất cả trạng thái</option>
+              <option value="ACTIVE">Đang hoạt động</option>
+              <option value="INACTIVE">Không hoạt động</option>
+              <option value="BLOCKED">Bị khóa</option>
+            </select>
+          </label>
+        </div>
 
         <Pagination
           pagination={visiblePagination}
@@ -305,7 +321,9 @@ export default function UsersPage() {
           ) : visibleUsers.length === 0 ? (
             <div className="px-5 py-16 text-center">
               <p className="font-bold">
-                {search ? 'Không tìm thấy người dùng phù hợp' : 'Chưa có người dùng nào'}
+                {search || statusFilter
+                  ? 'Không tìm thấy người dùng phù hợp'
+                  : 'Chưa có người dùng nào'}
               </p>
 
               <p className="mt-1 text-sm text-slate-500">

@@ -6,6 +6,8 @@ import { useEffect, useState } from 'react';
 import { getDashboardStats } from '@/api/dashboardApi';
 import type { DashboardStats } from '@/api/dashboardApi';
 import { resolveImageUrl } from '@/api/api';
+import { getProducts } from '@/api/productApi';
+import { getResourceList } from '@/api/adminResourceApi';
 import { formatGroupedNumber, formatVnd } from '@/utils/displayFormat';
 import Pagination from '@/components/Pagination';
 
@@ -23,6 +25,7 @@ export default function AdminPage() {
   const [bestSellingPage, setBestSellingPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [imageError, setImageError] = useState('');
   const bestSellingPagination = {
     page: bestSellingPage,
     limit: pageSize,
@@ -39,11 +42,78 @@ export default function AdminPage() {
 
   useEffect(() => {
     let active = true;
-    getDashboardStats()
-      .then((data) => {
-        if (active) setStats(data);
-      })
-      .catch((loadError: unknown) => {
+    async function loadDashboard() {
+      try {
+        const data = await getDashboardStats();
+        if (!active) return;
+        setStats(data);
+
+        if (data.bestSellingProducts.some((product) => !product.thumbnail_url)) {
+          const [productsResult, imagesResult] = await Promise.allSettled([
+            getProducts(),
+            getResourceList('/api/product-images'),
+          ]);
+          if (!active) return;
+
+          const products =
+            productsResult.status === 'fulfilled' ? productsResult.value : [];
+          const images =
+            imagesResult.status === 'fulfilled' ? imagesResult.value : [];
+          const imageByProduct = new Map<number, string>();
+          const primaryImageByProduct = new Map<number, string>();
+
+          for (const image of images) {
+            const productId = Number(image.product_id);
+            if (
+              !Number.isFinite(productId) ||
+              typeof image.image_url !== 'string' ||
+              !image.image_url
+            ) {
+              continue;
+            }
+            const isPrimary =
+              image.is_primary === true ||
+              image.is_primary === 1 ||
+              image.is_primary === '1';
+            if (isPrimary) {
+              primaryImageByProduct.set(productId, image.image_url);
+            } else if (!imageByProduct.has(productId)) {
+              imageByProduct.set(productId, image.image_url);
+            }
+          }
+
+          const canLoadAnyFallback =
+            productsResult.status === 'fulfilled' ||
+            imagesResult.status === 'fulfilled';
+          if (!canLoadAnyFallback) {
+            setImageError('Không tải được ảnh sản phẩm.');
+          } else if (
+            productsResult.status === 'rejected' ||
+            imagesResult.status === 'rejected'
+          ) {
+            setImageError('Một số ảnh sản phẩm có thể chưa tải được.');
+          }
+
+          setStats((current) => ({
+            ...current,
+            bestSellingProducts: current.bestSellingProducts.map((product) => {
+              if (product.thumbnail_url) return product;
+              const productInfo =
+                products.find((candidate) => candidate.id === product.product_id) ||
+                products.find(
+                  (candidate) =>
+                    candidate.name.trim().toLocaleLowerCase() ===
+                    product.product_name.trim().toLocaleLowerCase(),
+                );
+              const imageUrl =
+                primaryImageByProduct.get(productInfo?.id || product.product_id) ||
+                imageByProduct.get(productInfo?.id || product.product_id) ||
+                productInfo?.thumbnail_url;
+              return imageUrl ? { ...product, thumbnail_url: imageUrl } : product;
+            }),
+          }));
+        }
+      } catch (loadError) {
         if (active) {
           setError(
             loadError instanceof Error
@@ -51,10 +121,11 @@ export default function AdminPage() {
               : 'Không tải được thống kê tổng quan.',
           );
         }
-      })
-      .finally(() => {
+      } finally {
         if (active) setLoading(false);
-      });
+      }
+    }
+    void loadDashboard();
     return () => {
       active = false;
     };
@@ -112,6 +183,9 @@ export default function AdminPage() {
               Xếp hạng theo số lượng trong các đơn đã giao hoặc hoàn tất.
             </p>
           </div>
+          {imageError && (
+            <p className="px-5 pt-3 text-xs text-amber-700">{imageError}</p>
+          )}
           {loading ? (
             <p className="px-5 py-12 text-center text-sm text-slate-500">
               Đang tải thống kê...

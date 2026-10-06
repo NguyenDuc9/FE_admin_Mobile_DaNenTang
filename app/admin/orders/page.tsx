@@ -7,6 +7,9 @@ import {
   updateOrderStatus,
   type OrderDetail,
 } from '@/api/orderAdminApi';
+import { resolveImageUrl } from '@/api/api';
+import { getProducts } from '@/api/productApi';
+import { getResourceList } from '@/api/adminResourceApi';
 import Modal from '@/components/Modal';
 import Pagination from '@/components/Pagination';
 import type { ResourceRow } from '@/interfaces/adminResources';
@@ -112,6 +115,7 @@ export default function OrdersPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
+  const [detailImageError, setDetailImageError] = useState('');
   const [status, setStatus] = useState('');
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(true);
@@ -126,6 +130,8 @@ export default function OrdersPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
+  const [orderStatusFilter, setOrderStatusFilter] = useState('');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState('');
   const visibleOrders = orders.filter((order) =>
     matchesSearch(
       [
@@ -137,9 +143,16 @@ export default function OrdersPage() {
         order.payment_status,
       ],
       search,
-    ),
+    ) &&
+    (orderStatusFilter === '' || order.status === orderStatusFilter) &&
+    (paymentStatusFilter === '' ||
+      order.payment_status === paymentStatusFilter),
   );
-  const visiblePagination = search
+  const hasActiveFilters =
+    Boolean(search.trim()) ||
+    orderStatusFilter !== '' ||
+    paymentStatusFilter !== '';
+  const visiblePagination = hasActiveFilters
     ? { ...pagination, page: 1, total: visibleOrders.length, totalPages: 1 }
     : pagination;
 
@@ -195,9 +208,91 @@ export default function OrdersPage() {
     setDetailOpen(true);
     setDetailOrder(null);
     setDetailError('');
+    setDetailImageError('');
     setDetailLoading(true);
     try {
-      setDetailOrder(await getOrderDetails(order.id));
+      const details = await getOrderDetails(order.id);
+      setDetailOrder(details);
+
+      if (
+        details.items.some(
+          (item) => !item.product_image_url && !item.thumbnail_url,
+        )
+      ) {
+        const [productsResult, imagesResult] = await Promise.allSettled([
+          getProducts(),
+          getResourceList('/api/product-images'),
+        ]);
+        const products =
+          productsResult.status === 'fulfilled' ? productsResult.value : [];
+        const images =
+          imagesResult.status === 'fulfilled' ? imagesResult.value : [];
+        const imageByProduct = new Map<number, string>();
+        const primaryImageByProduct = new Map<number, string>();
+
+        for (const image of images) {
+          const productId =
+            typeof image.product_id === 'number' ||
+            typeof image.product_id === 'string'
+              ? Number(image.product_id)
+              : NaN;
+          if (
+            !Number.isFinite(productId) ||
+            typeof image.image_url !== 'string' ||
+            !image.image_url
+          ) {
+            continue;
+          }
+          const isPrimary =
+            image.is_primary === true ||
+            image.is_primary === 1 ||
+            image.is_primary === '1';
+          if (isPrimary) {
+            primaryImageByProduct.set(productId, image.image_url);
+          } else if (!imageByProduct.has(productId)) {
+            imageByProduct.set(productId, image.image_url);
+          }
+        }
+
+        const hasFallbackSource =
+          productsResult.status === 'fulfilled' ||
+          imagesResult.status === 'fulfilled';
+        if (!hasFallbackSource) {
+          setDetailImageError('Không thể tải ảnh sản phẩm.');
+        } else if (
+          productsResult.status === 'rejected' ||
+          imagesResult.status === 'rejected'
+        ) {
+          setDetailImageError('Một số ảnh sản phẩm có thể chưa tải được.');
+        }
+
+        setDetailOrder({
+          ...details,
+          items: details.items.map((item) => {
+            const product =
+              products.find(
+                (candidate) =>
+                  typeof item.product_id === 'number' &&
+                  candidate.id === item.product_id,
+              ) ||
+              products.find(
+                (candidate) =>
+                  candidate.name.trim().toLocaleLowerCase() ===
+                  item.product_name.trim().toLocaleLowerCase(),
+              );
+            if (!product) return item;
+
+            return {
+              ...item,
+              product_image_url:
+                item.product_image_url ||
+                primaryImageByProduct.get(product.id) ||
+                imageByProduct.get(product.id) ||
+                product.thumbnail_url,
+            };
+          }),
+        });
+      }
     } catch (detailLoadError) {
       setDetailError(errorMessage(detailLoadError));
     } finally {
@@ -255,11 +350,52 @@ export default function OrdersPage() {
           <Message type="error" message={error} onClose={() => setError('')} />
         )}
 
-        <AdminSearch
-          value={search}
-          onChange={setSearch}
-          placeholder="Tìm đơn theo mã, người nhận, trạng thái..."
-        />
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start">
+          <AdminSearch
+            value={search}
+            onChange={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+            placeholder="Tìm đơn theo mã, người nhận, trạng thái..."
+          />
+          <label className="mb-4 block">
+            <span className="sr-only">Lọc theo trạng thái đơn hàng</span>
+            <select
+              value={orderStatusFilter}
+              onChange={(event) => {
+                setOrderStatusFilter(event.target.value);
+                setPage(1);
+              }}
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-cyan-700 focus:ring-2 focus:ring-cyan-100 sm:min-w-52"
+            >
+              <option value="">Tất cả trạng thái đơn</option>
+              {orderStatuses.map((orderStatus) => (
+                <option key={orderStatus} value={orderStatus}>
+                  {statusLabels[orderStatus]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="mb-4 block">
+            <span className="sr-only">Lọc theo trạng thái thanh toán</span>
+            <select
+              value={paymentStatusFilter}
+              onChange={(event) => {
+                setPaymentStatusFilter(event.target.value);
+                setPage(1);
+              }}
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-cyan-700 focus:ring-2 focus:ring-cyan-100 sm:min-w-52"
+            >
+              <option value="">Tất cả trạng thái thanh toán</option>
+              {Object.entries(paymentStatusLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
 
         <Pagination
           pagination={visiblePagination}
@@ -272,7 +408,9 @@ export default function OrdersPage() {
             </p>
           ) : visibleOrders.length === 0 ? (
             <p className="px-5 py-16 text-center text-sm text-slate-500">
-              {search ? 'Không tìm thấy đơn hàng phù hợp.' : 'Chưa có đơn hàng.'}
+              {hasActiveFilters
+                ? 'Không tìm thấy đơn hàng phù hợp.'
+                : 'Chưa có đơn hàng.'}
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -370,6 +508,7 @@ export default function OrdersPage() {
           onClose={() => {
             setDetailOpen(false);
             setDetailError('');
+            setDetailImageError('');
             setDetailOrder(null);
           }}
         >
@@ -383,7 +522,10 @@ export default function OrdersPage() {
                 {detailError}
               </div>
             ) : detailOrder ? (
-              <OrderDetailsContent order={detailOrder} />
+              <OrderDetailsContent
+                order={detailOrder}
+                imageError={detailImageError}
+              />
             ) : null}
           </div>
         </Modal>
@@ -461,7 +603,13 @@ export default function OrdersPage() {
   );
 }
 
-function OrderDetailsContent({ order }: { order: OrderDetail }) {
+function OrderDetailsContent({
+  order,
+  imageError,
+}: {
+  order: OrderDetail;
+  imageError: string;
+}) {
   const fulfillmentLabel =
     order.fulfillment_method === 'PICKUP'
       ? 'Nhận tại cửa hàng'
@@ -522,27 +670,48 @@ function OrderDetailsContent({ order }: { order: OrderDetail }) {
 
       <section>
         <h3 className="mb-2 font-semibold text-slate-900">Sản phẩm</h3>
+        {imageError ? (
+          <p className="mb-2 text-xs text-amber-700">{imageError}</p>
+        ) : null}
         {order.items?.length ? (
           <div className="space-y-2">
             {order.items.map((item) => (
               <div
                 key={item.id}
-                className="rounded-xl border border-slate-200 p-3"
+                className="flex gap-3 rounded-xl border border-slate-200 p-3"
               >
-                <p className="font-medium text-slate-900">
-                  {item.product_name}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  {[item.variant_name, item.sku].filter(Boolean).join(' · ') ||
-                    'Sản phẩm'}
-                </p>
-                <div className="mt-2 flex justify-between gap-3 text-sm">
-                  <span className="text-slate-600">
-                    {formatVnd(Number(item.unit_price))} × {item.quantity}
-                  </span>
-                  <span className="font-semibold tabular-nums text-slate-800">
-                    {formatVnd(Number(item.subtotal))}
-                  </span>
+                {item.product_image_url || item.thumbnail_url ? (
+                  <img
+                    src={resolveImageUrl(
+                      item.product_image_url || item.thumbnail_url || '',
+                    )}
+                    alt={item.product_name}
+                    className="h-14 w-14 shrink-0 rounded-lg border border-slate-200 object-cover"
+                  />
+                ) : (
+                  <div
+                    aria-hidden="true"
+                    className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-xs font-semibold text-slate-400"
+                  >
+                    Ảnh
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-slate-900">
+                    {item.product_name}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {[item.variant_name, item.sku].filter(Boolean).join(' · ') ||
+                      'Sản phẩm'}
+                  </p>
+                  <div className="mt-2 flex justify-between gap-3 text-sm">
+                    <span className="text-slate-600">
+                      {formatVnd(Number(item.unit_price))} × {item.quantity}
+                    </span>
+                    <span className="font-semibold tabular-nums text-slate-800">
+                      {formatVnd(Number(item.subtotal))}
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}

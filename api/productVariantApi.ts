@@ -27,6 +27,13 @@ export type ProductVariantRequest = Omit<
   'id' | 'product_id'
 > & { product_id: number };
 
+export async function getAllProductVariants(): Promise<ProductVariant[]> {
+  const result = await api.get<
+    ProductVariant[] | { data: ProductVariant[] }
+  >('/api/product-variants');
+  return Array.isArray(result) ? result : result.data;
+}
+
 export async function getProductVariants(productId: number) {
   const result = await api.get<
     ProductVariant[] | { data: ProductVariant[] }

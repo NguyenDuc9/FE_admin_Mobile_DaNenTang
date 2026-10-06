@@ -13,6 +13,7 @@ const navigationItems = [
   { label: 'Danh mục', href: '/admin/categories', icon: '#' },
   { label: 'Thương hiệu', href: '/admin/brands', icon: 'B' },
   { label: 'Sản phẩm', href: '/admin/products', icon: '▣' },
+  { label: 'Biến thể sản phẩm', href: '/admin/product-variants', icon: '⚙' },
   { label: 'Đánh giá', href: '/admin/reviews', icon: '★' },
   { label: 'Voucher', href: '/admin/vouchers', icon: '%' },
   { label: 'Đơn hàng', href: '/admin/orders', icon: '□' },
