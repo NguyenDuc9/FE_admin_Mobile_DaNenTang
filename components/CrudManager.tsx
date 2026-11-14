@@ -570,7 +570,7 @@ export default function CrudManager({
                           className={`${
                             column.name === 'comment'
                               ? 'max-w-md whitespace-normal'
-                              : 'max-w-xs truncate'
+                              : `${column.name.toLowerCase().includes('status') ? 'whitespace-nowrap' : ''} max-w-xs truncate`
                           } px-5 py-4 text-slate-700 ${
                             column.name !== 'rating' &&
                             (isCurrencyColumn(column.name) ||
@@ -766,8 +766,7 @@ export default function CrudManager({
                   ) : field.type === 'template-items' ? (
                     <TemplateItemsField
                       value={String(form[field.name] ?? '[]')}
-                      products={lookupRows.products || []}
-                      variants={lookupRows.variants || []}
+                      components={lookupRows.components || []}
                       onChange={(value) =>
                         setForm((current) => ({
                           ...current,
@@ -905,13 +904,11 @@ interface TemplateItemValue {
 
 function TemplateItemsField({
   value,
-  products,
-  variants,
+  components,
   onChange,
 }: {
   value: string;
-  products: ResourceRow[];
-  variants: ResourceRow[];
+  components: ResourceRow[];
   onChange: (value: string) => void;
 }) {
   let items: TemplateItemValue[] = [];
@@ -935,9 +932,8 @@ function TemplateItemsField({
   return (
     <div className="space-y-3">
       {items.map((item, index) => {
-        const productId = Number(item.productId || 0);
-        const productVariants = variants.filter(
-          (variant) => Number(variant.product_id) === productId,
+        const availableComponents = components.filter(
+          (component) => component.component_type === item.componentType,
         );
         return (
           <div
@@ -946,48 +942,14 @@ function TemplateItemsField({
           >
             <select
               required
-              aria-label="Sản phẩm"
-              value={item.productId || ''}
-              onChange={(event) =>
-                updateItem(index, {
-                  productId: Number(event.target.value),
-                  productVariantId: null,
-                })
-              }
-              className="rounded-lg border border-slate-300 px-3 py-2 font-normal"
-            >
-              <option value="">Chọn sản phẩm</option>
-              {products.map((product) => (
-                <option key={product.id} value={product.id}>
-                  {String(product.name || product.id)}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Biến thể"
-              value={item.productVariantId || ''}
-              onChange={(event) =>
-                updateItem(index, {
-                  productVariantId: event.target.value
-                    ? Number(event.target.value)
-                    : null,
-                })
-              }
-              className="rounded-lg border border-slate-300 px-3 py-2 font-normal"
-            >
-              <option value="">Không chọn biến thể</option>
-              {productVariants.map((variant) => (
-                <option key={variant.id} value={variant.id}>
-                  {String(variant.variant_name || variant.sku || variant.id)}
-                </option>
-              ))}
-            </select>
-            <select
-              required
               aria-label="Loại linh kiện"
               value={item.componentType || ''}
               onChange={(event) =>
-                updateItem(index, { componentType: event.target.value })
+                updateItem(index, {
+                  componentType: event.target.value,
+                  productId: 0,
+                  productVariantId: null,
+                })
               }
               className="rounded-lg border border-slate-300 px-3 py-2 font-normal"
             >
@@ -1002,8 +964,47 @@ function TemplateItemsField({
                 'CASE',
                 'COOLER',
               ].map((type) => (
-                <option key={type} value={type}>
+                <option
+                  key={type}
+                  value={type}
+                  disabled={!components.some((component) => component.component_type === type)}
+                >
                   {type}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Linh kiện"
+              required
+              disabled={!item.componentType}
+              value={item.productVariantId || ''}
+              onChange={(event) => {
+                const component = availableComponents.find(
+                  (option) =>
+                    Number(option.product_variant_id) ===
+                    Number(event.target.value),
+                );
+                updateItem(index, {
+                  productId: component ? Number(component.product_id) : 0,
+                  productVariantId: component
+                    ? Number(component.product_variant_id)
+                    : null,
+                });
+              }}
+              className="rounded-lg border border-slate-300 px-3 py-2 font-normal"
+            >
+              <option value="">
+                {availableComponents.length
+                  ? 'Chọn linh kiện'
+                  : 'Không có linh kiện đang hoạt động'}
+              </option>
+              {availableComponents.map((component) => (
+                <option
+                  key={String(component.product_variant_id)}
+                  value={String(component.product_variant_id ?? '')}
+                >
+                  {String(component.product_name || 'Sản phẩm')} —{' '}
+                  {String(component.variant_name || component.sku || component.product_variant_id)}
                 </option>
               ))}
             </select>

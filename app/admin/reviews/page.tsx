@@ -50,8 +50,7 @@ const definition: ResourceDefinition = {
       label: 'Trạng thái',
       type: 'select',
       options: [
-        { value: 'PENDING', label: 'Chờ duyệt' },
-        { value: 'APPROVED', label: 'Đã duyệt' },
+        { value: 'APPROVED', label: 'Đang hiển thị' },
         { value: 'HIDDEN', label: 'Đã ẩn' },
       ],
     },

@@ -42,7 +42,10 @@ export async function getProductVariants(productId: number) {
 }
 
 export async function createProductVariant(data: ProductVariantRequest) {
-  return api.post<ProductVariant>('/api/product-variants', data);
+  const result = await api.post<
+    ProductVariant | { data: ProductVariant }
+  >('/api/product-variants', data);
+  return 'data' in result ? result.data : result;
 }
 
 export async function updateProductVariant(

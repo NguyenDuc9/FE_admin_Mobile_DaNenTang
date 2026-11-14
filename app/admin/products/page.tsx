@@ -436,7 +436,7 @@ export default function ProductsPage() {
                       </td>
                       <td className="px-5 py-4">
                         <span
-                          className={`rounded-full px-2.5 py-1 text-xs font-bold ${product.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}
+                          className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-bold ${product.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}
                         >
                           {productStatusLabels[product.status] ||
                             'Trạng thái khác'}

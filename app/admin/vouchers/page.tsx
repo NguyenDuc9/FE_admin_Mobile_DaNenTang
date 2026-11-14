@@ -9,6 +9,8 @@ import {
   setVoucherProducts,
 } from '@/api/voucherProductApi';
 import type { VoucherProduct } from '@/api/voucherProductApi';
+import { getProducts } from '@/api/productApi';
+import { getResourceList } from '@/api/adminResourceApi';
 import type { ResourceRow } from '@/interfaces/adminResources';
 import type { ResourceDefinition } from '@/interfaces/adminResources';
 import { resolveImageUrl } from '@/api/api';
@@ -105,6 +107,7 @@ export default function VouchersPage() {
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [savingProducts, setSavingProducts] = useState(false);
   const [error, setError] = useState('');
+  const [imageWarning, setImageWarning] = useState('');
   const [notice, setNotice] = useState('');
   const visibleProducts = products.filter((product) =>
     matchesSearch([product.id, product.name, product.slug], productSearch),
@@ -132,12 +135,65 @@ export default function VouchersPage() {
     setVoucher(row);
     setLoadingProducts(true);
     setError('');
+    setImageWarning('');
     try {
       const [productRows, linkedProducts] = await Promise.all([
         getVoucherProductCatalog(row.id),
         getVoucherProducts(row.id),
       ]);
-      setProducts(productRows);
+      let productsWithImages = productRows;
+      if (productRows.some((product) => !product.thumbnail_url)) {
+        const [productsResult, imagesResult] = await Promise.allSettled([
+          getProducts(),
+          getResourceList('/api/product-images'),
+        ]);
+        const catalogProducts =
+          productsResult.status === 'fulfilled' ? productsResult.value : [];
+        const images =
+          imagesResult.status === 'fulfilled' ? imagesResult.value : [];
+        const primaryImageByProduct = new Map<number, string>();
+        const imageByProduct = new Map<number, string>();
+
+        for (const image of images) {
+          const productId = Number(image.product_id);
+          if (
+            !Number.isFinite(productId) ||
+            typeof image.image_url !== 'string' ||
+            !image.image_url
+          ) {
+            continue;
+          }
+          const isPrimary =
+            image.is_primary === true ||
+            image.is_primary === 1 ||
+            image.is_primary === '1';
+          if (isPrimary) {
+            primaryImageByProduct.set(productId, image.image_url);
+          } else if (!imageByProduct.has(productId)) {
+            imageByProduct.set(productId, image.image_url);
+          }
+        }
+
+        productsWithImages = productRows.map((product) => {
+          if (product.thumbnail_url) return product;
+          const productInfo = catalogProducts.find(
+            (candidate) => candidate.id === product.id,
+          );
+          const thumbnailUrl =
+            productInfo?.thumbnail_url ||
+            primaryImageByProduct.get(product.id) ||
+            imageByProduct.get(product.id);
+          return thumbnailUrl ? { ...product, thumbnail_url: thumbnailUrl } : product;
+        });
+
+        if (
+          productsResult.status === 'rejected' ||
+          imagesResult.status === 'rejected'
+        ) {
+          setImageWarning('Một số ảnh sản phẩm có thể chưa tải được.');
+        }
+      }
+      setProducts(productsWithImages);
       setSelectedIds(linkedProducts.map((product: VoucherProduct) => product.id));
       setProductSearch('');
       setProductPage(1);
@@ -218,6 +274,11 @@ export default function VouchersPage() {
               một sản phẩm; lúc thanh toán khoản giảm được áp dụng một lần cho
               đơn hàng.
             </p>
+            {imageWarning && (
+              <p role="status" className="text-xs text-amber-700">
+                {imageWarning}
+              </p>
+            )}
             {error && (
               <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
                 {error}

@@ -25,6 +25,11 @@ export async function getUsers(): Promise<User[]> {
   return Array.isArray(result) ? result : result.data;
 }
 
+export async function getUserById(id: number): Promise<User> {
+  const result = await api.get<{ data: User }>(`/api/users/${id}`);
+  return result.data;
+}
+
 export async function createUser(data: UserRequest): Promise<User> {
   return api.post<User>('/api/users', data);
 }

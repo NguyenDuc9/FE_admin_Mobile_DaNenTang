@@ -27,14 +27,19 @@ export async function getProducts(): Promise<Product[]> {
 }
 
 export async function createProduct(data: ProductRequest): Promise<Product> {
-  return api.post<Product>('/api/products', data);
+  const result = await api.post<Product | { data: Product }>('/api/products', data);
+  return 'data' in result ? result.data : result;
 }
 
 export async function updateProduct(
   id: number,
   data: ProductRequest,
 ): Promise<Product> {
-  return api.put<Product>(`/api/products/${id}`, data);
+  const result = await api.put<Product | { data: Product }>(
+    `/api/products/${id}`,
+    data,
+  );
+  return 'data' in result ? result.data : result;
 }
 
 export async function deleteProduct(id: number): Promise<void> {
