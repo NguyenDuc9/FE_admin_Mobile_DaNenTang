@@ -22,7 +22,6 @@ const navigationItems = [
   { label: 'Bảo hành', href: '/admin/warranties', icon: '◷' },
   { label: 'Người dùng', href: '/admin/users', icon: '♙' },
   { label: 'Vai trò', href: '/admin/roles', icon: '⚑' },
-  { label: 'Cấu hình mẫu', href: '/admin/build-templates', icon: '▤' },
 ];
 
 export default function Sidebar({ open, onClose }: SidebarProps) {

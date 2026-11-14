@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { getResourcePage } from '@/api/adminResourceApi';
 import {
   getOrderDetails,
-  updateOrderStatus,
   type OrderDetail,
 } from '@/api/orderAdminApi';
 import { resolveImageUrl } from '@/api/api';
@@ -109,15 +109,13 @@ function errorMessage(error: unknown) {
 }
 
 export default function OrdersPage() {
+  const router = useRouter();
   const [orders, setOrders] = useState<ResourceRow[]>([]);
-  const [selectedOrder, setSelectedOrder] = useState<ResourceRow | null>(null);
   const [detailOrder, setDetailOrder] = useState<OrderDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
   const [detailImageError, setDetailImageError] = useState('');
-  const [status, setStatus] = useState('');
-  const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({
@@ -126,7 +124,6 @@ export default function OrdersPage() {
     total: 0,
     totalPages: 1,
   });
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
@@ -196,13 +193,6 @@ export default function OrdersPage() {
       active = false;
     };
   }, [page]);
-
-  function openStatusEditor(order: ResourceRow) {
-    setSelectedOrder(order);
-    setStatus(getNextStatuses(order.status)[0] || '');
-    setReason('');
-    setError('');
-  }
 
   async function openOrderDetails(order: ResourceRow) {
     setDetailOpen(true);
@@ -300,25 +290,6 @@ export default function OrdersPage() {
     }
   }
 
-  async function saveStatus() {
-    if (!selectedOrder || !status) return;
-    setSaving(true);
-    setError('');
-    try {
-      await updateOrderStatus(selectedOrder.id, status, reason.trim());
-      const wasConfirmed = status === 'CONFIRMED';
-      setSelectedOrder(null);
-      setNotice(
-        `${wasConfirmed ? 'Đã xác nhận' : 'Đã cập nhật'} đơn ${String(selectedOrder.order_code || `#${selectedOrder.id}`)}.`,
-      );
-      await loadOrders();
-    } catch (saveError) {
-      setError(errorMessage(saveError));
-    } finally {
-      setSaving(false);
-    }
-  }
-
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-[#f4f7fb] px-5 py-8 text-slate-900 lg:px-8">
       <div className="mx-auto max-w-7xl">
@@ -346,7 +317,7 @@ export default function OrdersPage() {
             onClose={() => setNotice('')}
           />
         )}
-        {error && !selectedOrder && (
+        {error && (
           <Message type="error" message={error} onClose={() => setError('')} />
         )}
 
@@ -444,7 +415,7 @@ export default function OrdersPage() {
                       <td className="px-5 py-4">
                         <div className="flex flex-col items-start gap-1.5">
                           <span
-                            className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${paymentStatusColors[String(order.payment_status)] || 'border-slate-200 bg-slate-50 text-slate-700'}`}
+                            className={`inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-semibold ${paymentStatusColors[String(order.payment_status)] || 'border-slate-200 bg-slate-50 text-slate-700'}`}
                           >
                             {paymentStatusLabels[String(order.payment_status)] ||
                               'Trạng thái thanh toán khác'}
@@ -459,7 +430,7 @@ export default function OrdersPage() {
                       </td>
                       <td className="px-5 py-4">
                         <span
-                          className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getOrderStatusClass(order.status)}`}
+                          className={`inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-semibold ${getOrderStatusClass(order.status)}`}
                         >
                           {statusLabels[String(order.status) as OrderStatus] ||
                             'Trạng thái đơn khác'}
@@ -469,19 +440,19 @@ export default function OrdersPage() {
                         <button
                           type="button"
                           onClick={() => void openOrderDetails(order)}
-                          className="mr-4 font-semibold text-indigo-700 hover:text-indigo-900"
+                          className="mr-3 font-semibold text-indigo-700 hover:text-indigo-900"
                         >
                           Xem chi tiết
                         </button>
                         {getNextStatuses(order.status).length > 0 && (
                           <button
                             type="button"
-                            onClick={() => openStatusEditor(order)}
+                            onClick={() =>
+                              router.push(`/admin/orders/${order.id}`)
+                            }
                             className="font-semibold text-cyan-800 hover:text-cyan-950"
                           >
-                            {order.status === 'PENDING'
-                              ? 'Xác nhận đơn'
-                              : 'Cập nhật trạng thái'}
+                            Cập nhật trạng thái
                           </button>
                         )}
                       </td>
@@ -531,74 +502,6 @@ export default function OrdersPage() {
         </Modal>
       )}
 
-      {selectedOrder && (
-        <Modal
-          title={
-            selectedOrder.status === 'PENDING'
-              ? 'Xác nhận đơn hàng'
-              : 'Cập nhật trạng thái đơn'
-          }
-          onClose={() => setSelectedOrder(null)}
-        >
-          <div className="space-y-4 p-6">
-            <p className="text-sm text-slate-600">
-              {String(selectedOrder.order_code || `Đơn #${selectedOrder.id}`)}
-            </p>
-            <label className="block text-sm font-semibold">
-              Trạng thái tiếp theo
-              <select
-                value={status}
-                onChange={(event) => setStatus(event.target.value)}
-                className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal"
-              >
-                {getNextStatuses(selectedOrder.status).map((nextStatus) => (
-                    <option key={nextStatus} value={nextStatus}>
-                      {statusLabels[nextStatus] || nextStatus}
-                    </option>
-                  ))}
-              </select>
-              {status ? (
-                <span
-                  className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getOrderStatusClass(status)}`}
-                >
-                  {statusLabels[status as OrderStatus] || status}
-                </span>
-              ) : null}
-            </label>
-            <label className="block text-sm font-semibold">
-              Ghi chú
-              <textarea
-                value={reason}
-                onChange={(event) => setReason(event.target.value)}
-                rows={3}
-                className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal"
-              />
-            </label>
-            {error && <p className="text-sm text-rose-700">{error}</p>}
-            <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
-              <button
-                type="button"
-                onClick={() => setSelectedOrder(null)}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                disabled={saving || !status}
-                onClick={() => void saveStatus()}
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-              >
-                {saving
-                  ? 'Đang lưu...'
-                  : status === 'CONFIRMED'
-                    ? 'Xác nhận đơn'
-                    : 'Lưu trạng thái'}
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
     </main>
   );
 }
@@ -624,7 +527,7 @@ function OrderDetailsContent({
             <p className="font-semibold text-slate-900">{order.order_code}</p>
           </div>
           <span
-            className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getOrderStatusClass(order.status)}`}
+            className={`inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-semibold ${getOrderStatusClass(order.status)}`}
           >
             {statusLabels[order.status as OrderStatus] || 'Trạng thái đơn khác'}
           </span>

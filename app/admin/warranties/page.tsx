@@ -271,7 +271,7 @@ export default function WarrantiesPage() {
                         {formatDateTime(row.start_date)} –{' '}
                         {formatDateTime(row.end_date)}
                       </td>
-                      <td className="px-5 py-4">
+                      <td className="whitespace-nowrap px-5 py-4">
                         {warrantyStatusLabels[String(row.status)] ||
                           'Trạng thái khác'}
                       </td>

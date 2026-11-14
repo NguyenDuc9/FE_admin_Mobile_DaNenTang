@@ -16,9 +16,9 @@ export interface DashboardStats {
   bestSellingProducts: DashboardProduct[];
 }
 
-export async function getDashboardStats() {
+export async function getDashboardStats(month: string) {
   const response = await api.get<{ data: DashboardStats }>(
-    '/api/admin-fe/dashboard',
+    `/api/admin-fe/dashboard?month=${encodeURIComponent(month)}`,
   );
   return response.data;
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
+import Link from 'next/link';
 
 import {
   createUser,
@@ -393,6 +394,13 @@ export default function UsersPage() {
 
                       {/* Actions */}
                       <td className="px-5 py-4 text-right">
+                        <Link
+                          href={`/admin/users/${user.id}`}
+                          className="mr-3 font-semibold text-indigo-700 hover:text-indigo-900"
+                        >
+                          Chi tiết
+                        </Link>
+
                         <button
                           type="button"
                           onClick={() => openEdit(user)}
